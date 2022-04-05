@@ -12,7 +12,7 @@ namespace Baum2.Editor
 {
     public sealed class PrefabCreator
     {
-        private static readonly string[] Versions = { "0.6.0", "0.6.1" };
+        private static readonly string[] Versions = { "0.6.0", "0.6.1", "0.7.0" };
         private readonly string spriteRootPath;
         private readonly string fontRootPath;
         private readonly string assetPath;
@@ -24,18 +24,26 @@ namespace Baum2.Editor
             this.assetPath = assetPath;
         }
 
+		void log(string message){
+			Debug.Log(message);
+		}
+
         public GameObject Create()
         {
+			log("PrefabCreator::Create");
             if (EditorApplication.isPlaying)
             {
                 EditorApplication.isPlaying = false;
             }
+
+			log($"PrefabCreator::LoadAsset:{assetPath}");
 
             var text = AssetDatabase.LoadAssetAtPath<TextAsset>(assetPath).text;
             var json = MiniJSON.Json.Deserialize(text) as Dictionary<string, object>;
             var info = json.GetDic("info");
             Validation(info);
 
+			log("PrefabCreator::Validation OK");
             var canvas = info.GetDic("canvas");
             var imageSize = canvas.GetDic("image");
             var canvasSize = canvas.GetDic("size");
@@ -77,6 +85,7 @@ namespace Baum2.Editor
 
     public class Renderer
     {
+		private static string defaultFontPath = "Assets/Baum2/Fonts/mplus-2p-regular.ttf";
         private readonly string spriteRootPath;
         private readonly string fontRootPath;
         private readonly Vector2 imageSize;
@@ -96,7 +105,7 @@ namespace Baum2.Editor
         {
             var fullPath = Path.Combine(spriteRootPath, spriteName) + ".png";
             var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(fullPath);
-            Assert.IsNotNull(sprite, string.Format("[Baum2] sprite \"{0}\" is not found fullPath:{1}", spriteName, fullPath));
+            //Assert.IsNotNull(sprite, string.Format("[Baum2] sprite \"{0}\" is not found fullPath:{1}", spriteName, fullPath));
             return sprite;
         }
 
@@ -104,7 +113,10 @@ namespace Baum2.Editor
         {
             var font = AssetDatabase.LoadAssetAtPath<Font>(Path.Combine(fontRootPath, fontName) + ".ttf");
             if (font == null) font = AssetDatabase.LoadAssetAtPath<Font>(Path.Combine(fontRootPath, fontName) + ".otf");
-            Assert.IsNotNull(font, string.Format("[Baum2] font \"{0}\" is not found", fontName));
+            if (font == null) font = AssetDatabase.LoadAssetAtPath<Font>(defaultFontPath);
+            //Assert.IsNotNull(font, string.Format("[Baum2] font \"{0}\" is not found", fontName));
+			// fallback default font
+
             return font;
         }
 

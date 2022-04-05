@@ -13,6 +13,10 @@ namespace Baum2.Editor
     {
         public override int GetPostprocessOrder() { return 1000; }
 
+		static void log(string message){
+			Debug.Log(message);
+		}
+
         public static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
         {
             var changed = false;
@@ -44,23 +48,16 @@ namespace Baum2.Editor
 
             EditorApplication.delayCall += () =>
             {
-                // Delete Directory
-                foreach (var asset in importedAssets)
-                {
-                    if (!asset.Contains(EditorUtil.ImportDirectoryPath)) continue;
-                    if (!string.IsNullOrEmpty(Path.GetExtension(asset))) continue;
-                    Debug.LogFormat("[Baum2] Delete Directory: {0}", EditorUtil.ToUnityPath(asset));
-                    AssetDatabase.DeleteAsset(EditorUtil.ToUnityPath(asset));
-                    changed = true;
-                }
+                Debug.Log("[Baum2] DelayCall");
 
                 // Create Prefab
                 foreach (var asset in importedAssets)
                 {
+					log($"import:{asset}");
                     if (!asset.Contains(EditorUtil.ImportDirectoryPath)) continue;
-                    if (!asset.EndsWith(".layout.txt", System.StringComparison.Ordinal)) continue;
+                    if (!asset.EndsWith(".layout.json", System.StringComparison.Ordinal))continue;
 
-                    var name = Path.GetFileName(asset).Replace(".layout.txt", "");
+                    var name = Path.GetFileName(asset).Replace(".layout.json", "");
                     var spriteRootPath = EditorUtil.ToUnityPath(Path.Combine(EditorUtil.GetBaumSpritesPath(), name));
                     var fontRootPath = EditorUtil.ToUnityPath(EditorUtil.GetBaumFontsPath());
                     var creator = new PrefabCreator(spriteRootPath, fontRootPath, asset);
@@ -77,6 +74,16 @@ namespace Baum2.Editor
                     Debug.LogFormat("[Baum2] Create Prefab: {0}", savePath);
 
                     AssetDatabase.DeleteAsset(EditorUtil.ToUnityPath(asset));
+                }
+
+                // Delete Directory
+                foreach (var asset in importedAssets)
+                {
+                    if (!asset.Contains(EditorUtil.ImportDirectoryPath)) continue;
+                    if (!string.IsNullOrEmpty(Path.GetExtension(asset))) continue;
+                    Debug.LogFormat("[Baum2] Delete Directory: {0}", EditorUtil.ToUnityPath(asset));
+                    AssetDatabase.DeleteAsset(EditorUtil.ToUnityPath(asset));
+                    changed = true;
                 }
             };
         }

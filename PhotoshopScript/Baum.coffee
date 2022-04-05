@@ -1,6 +1,6 @@
 class Baum
 	@version = '0.7.0'
-	@maxLength = 1334
+	@maxLength = 1920
 
 	run: ->
 		@saveFolder = null
@@ -40,7 +40,7 @@ class Baum
 		@layerBlendAll(copiedDoc, copiedDoc)
 		@removeCommentoutLayers(copiedDoc, copiedDoc) # blendの処理してから消す
 		@cropLayers(copiedDoc)
-		@resizePsd(copiedDoc)
+		#@resizePsd(copiedDoc)
 		@selectDocumentArea(copiedDoc)
 		#@ungroupArtboard(copiedDoc)
 		@clipping(copiedDoc, copiedDoc)
@@ -392,6 +392,7 @@ class PsdToJson
 			canvasSize = [bounds[2].value - bounds[0].value, bounds[3].value - bounds[1].value]
 			canvasBase = [(bounds[2].value + bounds[0].value)/2, (bounds[3].value + bounds[1].value)/2]
 
+		# Artboardを使わない場合ルートをPrefabの起点にする.
 		json = JSON.stringify({
 			info: {
 				version: Baum.version
@@ -414,6 +415,7 @@ class PsdToJson
 				type: 'Root'
 				name: documentName
 				elements: layers
+				prefab: !useArtboard
 			}
 		})
 		json
@@ -438,7 +440,7 @@ class PsdToJson
 			# グループの時だけprefabとして出力する.
 			if hash
 				hash['name'] = name
-				hash['prefab'] = true
+				hash['prefab'] = true if useArtboard
 				layers.push(hash)
 		layers
 

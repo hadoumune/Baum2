@@ -66,7 +66,11 @@
       useArtboard = this.convertArtboard(copiedDoc);
       copiedDoc.selection.deselect();
       this.psdToJson(copiedDoc, this.documentName, useArtboard);
-      return this.psdToImage(copiedDoc, this.documentName);
+      this.psdToImage(copiedDoc, this.documentName);
+      copiedDoc.close(SaveOptions.DONOTSAVECHANGES);
+      if (after_close) {
+        return app.activeDocument.close(SaveOptions.DONOTSAVECHANGES);
+      }
     };
 
     Baum.prototype.selectDocumentArea = function(document) {
@@ -534,7 +538,8 @@
         root: {
           type: 'Root',
           name: documentName,
-          elements: layers
+          elements: layers,
+          prefab: !useArtboard
         }
       });
       return json;
@@ -571,7 +576,9 @@
         }
         if (hash) {
           hash['name'] = name;
-          hash['prefab'] = true;
+          if (useArtboard) {
+            hash['prefab'] = true;
+          }
           layers.push(hash);
         }
       }
