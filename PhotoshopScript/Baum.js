@@ -19,7 +19,7 @@
 
     Baum.version = '0.7.0';
 
-    Baum.maxLength = 1334;
+    Baum.maxLength = 1920;
 
     Baum.prototype.run = function() {
       var filePath, filePaths, j, len;
@@ -60,7 +60,6 @@
       this.layerBlendAll(copiedDoc, copiedDoc);
       this.removeCommentoutLayers(copiedDoc, copiedDoc);
       this.cropLayers(copiedDoc);
-      this.resizePsd(copiedDoc);
       this.selectDocumentArea(copiedDoc);
       this.clipping(copiedDoc, copiedDoc);
       useArtboard = this.convertArtboard(copiedDoc);
@@ -223,11 +222,90 @@
       return root.crop(bounds);
     };
 
+    Baum.prototype.getLayerDesc = function() {
+      var ref;
+      ref = new ActionReference();
+      ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
+      return executeActionGet(ref);
+    };
+
+    Baum.prototype.getRectPoints = function(layer) {
+      var d, i, j, obj, points, ref1, smartObjectMore, t_list;
+      if (layer.kind !== LayerKind.SMARTOBJECT) {
+        return [
+          {
+            x: 0,
+            y: 0
+          }, {
+            x: 0,
+            y: 0
+          }, {
+            x: 0,
+            y: 0
+          }, {
+            x: 0,
+            y: 0
+          }
+        ];
+      }
+      smartObjectMore = stringIDToTypeID('smartObjectMore');
+      d = this.getLayerDesc();
+      if (!d.hasKey(smartObjectMore)) {
+        alert(layer.name + ":has no smartObjectMore key");
+        return [
+          {
+            x: 0,
+            y: 0
+          }, {
+            x: 0,
+            y: 0
+          }, {
+            x: 0,
+            y: 0
+          }, {
+            x: 0,
+            y: 0
+          }
+        ];
+      }
+      obj = d.getObjectValue(smartObjectMore);
+      points = [];
+      if (obj.hasKey(stringIDToTypeID('transform'))) {
+        t_list = obj.getList(stringIDToTypeID('transform'));
+        for (i = j = 0, ref1 = t_list.count - 1; j <= ref1; i = j += 2) {
+          points.push({
+            x: t_list.getDouble(i),
+            y: t_list.getDouble(i + 1)
+          });
+        }
+      }
+      return points;
+    };
+
+    Baum.prototype.getAngleFromPoints = function(points) {
+      var angle, p, x, y;
+      p = points;
+      x = p[1].x - p[0].x;
+      y = p[1].y - p[0].y;
+      angle = Math.atan2(y, x) * (180 / Math.PI);
+      return angle;
+    };
+
+    Baum.prototype.toLayerObject = function(document) {
+      var idnewPlacedLayer, idplacedLayerConvertToLayers;
+      idnewPlacedLayer = stringIDToTypeID("newPlacedLayer");
+      executeAction(idnewPlacedLayer, void 0, DialogModes.NO);
+      idplacedLayerConvertToLayers = stringIDToTypeID("placedLayerConvertToLayers");
+      executeAction(idplacedLayerConvertToLayers, void 0, DialogModes.NO);
+      return app.activeDocument.activeLayer;
+    };
+
     Baum.prototype.rasterizeAll = function(root) {
-      var j, layer, len, ref1, results, t;
+      var _1st, angle, j, key, layer, len, name, opt, points, ref1, results, t, value;
       ref1 = root.layers;
       for (j = 0, len = ref1.length; j < len; j++) {
         layer = ref1[j];
+        app.activeDocument.activeLayer = layer;
         if (layer.name.startsWith('*')) {
           layer.name = layer.name.slice(1).strip();
           if (layer.typename === 'LayerSet') {
@@ -238,6 +316,31 @@
         } else if (layer.typename === 'LayerSet') {
           this.rasterizeAll(layer);
         } else if (layer.typename === 'ArtLayer') {
+          if (layer.kind === LayerKind.SMARTOBJECT) {
+            name = layer.name.split("@")[0];
+            opt = Util.parseOption(layer.name.split("@")[1]);
+            if (opt['rot'] === "smart") {
+              points = this.getRectPoints(layer);
+              angle = this.getAngleFromPoints(points);
+              layer = this.toLayerObject(root);
+              layer.rotate(-angle, AnchorPosition.MIDDLECENTER);
+              opt['rot'] = angle.toFixed(3);
+              alert("rotate text layer angle:" + opt['rot']);
+              name += "@";
+              _1st = true;
+              for (key in opt) {
+                value = opt[key];
+                if (_1st) {
+                  _1st = false;
+                } else {
+                  name += ",";
+                }
+                name += key + "=" + value;
+              }
+              layer.name = name;
+              alert("art smartobject:" + layer.name);
+            }
+          }
           if (layer.kind !== LayerKind.TEXT) {
             this.rasterize(layer);
           }
@@ -628,6 +731,51 @@
       return opt;
     };
 
+    PsdToJson.prototype.toLayerObject = function() {
+      var idplacedLayerConvertToLayers;
+      idplacedLayerConvertToLayers = stringIDToTypeID("placedLayerConvertToLayers");
+      executeAction(idplacedLayerConvertToLayers, void 0, DialogModes.NO);
+      return document.activeLayer;
+    };
+
+    PsdToJson.prototype.toSmartObject = function() {
+      var idx;
+      idx = stringIDToTypeID("newPlacedLayer");
+      return executeAction(idx, void 0, DialogModes.NO);
+    };
+
+    PsdToJson.prototype.reasetTransform = function() {
+      var idplacedLayerResetTransforms;
+      idplacedLayerResetTransforms = stringIDToTypeID("placedLayerResetTransforms");
+      return executeAction(idplacedLayerResetTransforms, void 0, DialogModes.NO);
+    };
+
+    PsdToJson.prototype.getActiveLayerTransform = function() {
+      var desc, ref, xx, xy, yx, yy;
+      ref = new ActionReference();
+      ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
+      desc = executeActionGet(ref).getObjectValue(stringIDToTypeID('textKey'));
+      if (desc.hasKey(stringIDToTypeID('transform'))) {
+        desc = desc.getObjectValue(stringIDToTypeID('transform'));
+        xx = desc.getDouble(stringIDToTypeID('xx'));
+        xy = desc.getDouble(stringIDToTypeID('xy'));
+        yy = desc.getDouble(stringIDToTypeID('yy'));
+        yx = desc.getDouble(stringIDToTypeID('yx'));
+        return {
+          xx: xx,
+          xy: xy,
+          yy: yy,
+          yx: yx
+        };
+      }
+      return {
+        xx: 0,
+        xy: 0,
+        yy: 0,
+        yx: 0
+      };
+    };
+
     PsdToJson.prototype.layerToHash = function(document, name, opt, layer) {
       var align, bounds, e, hash, hh, originalText, pos, scale, text, textCenterOffset, textColor, textSize, textType, vh, vx, vy, ww;
       document.activeLayer = layer;
@@ -724,39 +872,10 @@
       if (opt['stretchxy']) {
         hash['stretchxy'] = opt['stretchxy'];
       }
-      return hash;
-    };
-
-    PsdToJson.prototype.angleFromMatrix = function(yy, xy) {
-      var toDegs;
-      toDegs = 180 / Math.PI;
-      return Math.atan2(yy, xy) * toDegs - 90;
-    };
-
-    PsdToJson.prototype.getActiveLayerTransform = function() {
-      var desc, ref, xx, xy, yx, yy;
-      ref = new ActionReference();
-      ref.putEnumerated(charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
-      desc = executeActionGet(ref).getObjectValue(stringIDToTypeID('textKey'));
-      if (desc.hasKey(stringIDToTypeID('transform'))) {
-        desc = desc.getObjectValue(stringIDToTypeID('transform'));
-        xx = desc.getDouble(stringIDToTypeID('xx'));
-        xy = desc.getDouble(stringIDToTypeID('xy'));
-        yy = desc.getDouble(stringIDToTypeID('yy'));
-        yx = desc.getDouble(stringIDToTypeID('yx'));
-        return {
-          xx: xx,
-          xy: xy,
-          yy: yy,
-          yx: yx
-        };
+      if (opt['rot']) {
+        hash['rot'] = Number(opt['rot']);
       }
-      return {
-        xx: 0,
-        xy: 0,
-        yy: 0,
-        yx: 0
-      };
+      return hash;
     };
 
     PsdToJson.prototype.getTextSize = function() {

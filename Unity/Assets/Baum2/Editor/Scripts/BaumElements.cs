@@ -270,6 +270,7 @@ namespace Baum2.Editor
         private Vector2 canvasPosition;
         private Vector2 sizeDelta;
         private float opacity;
+		private float angle;
 
         public ImageElement(Dictionary<string, object> json, Element parent) : base(json, parent)
         {
@@ -277,6 +278,10 @@ namespace Baum2.Editor
             canvasPosition = json.GetVector2("x", "y");
             sizeDelta = json.GetVector2("w", "h");
             opacity = json.GetFloat("opacity");
+			angle = 0;
+			if ( json.ContainsKey("rot") )
+				angle = -json.GetFloat("rot");
+
         }
 
         public override GameObject Render(Renderer renderer)
@@ -291,6 +296,8 @@ namespace Baum2.Editor
             image.sprite = renderer.GetSprite(spriteName);
             image.type = Image.Type.Sliced;
             image.color = new Color(1.0f, 1.0f, 1.0f, opacity / 100.0f);
+
+			image.rectTransform.rotation = Quaternion.Euler(0,0,angle);
 
             SetStretch(go, renderer);
             SetPivot(go, renderer);
@@ -325,6 +332,7 @@ namespace Baum2.Editor
         private int strokeSize;
         private Color strokeColor;
         private string type;
+		private float angle;
 
         public TextElement(Dictionary<string, object> json, Element parent) : base(json, parent)
         {
@@ -343,6 +351,9 @@ namespace Baum2.Editor
             sizeDelta = json.GetVector2("w", "h");
             canvasPosition = json.GetVector2("x", "y");
             virtualHeight = json.GetFloat("vh");
+			angle = 0;
+			if ( json.ContainsKey("rot") )
+				angle = -json.GetFloat("rot");
         }
 
         public override GameObject Render(Renderer renderer)
@@ -362,6 +373,7 @@ namespace Baum2.Editor
             text.font = renderer.GetFont(font);
             text.fontSize = Mathf.RoundToInt(fontSize);
             text.color = fontColor;
+			text.rectTransform.rotation = Quaternion.Euler(0,0,angle);
 
             bool middle = true;
             if (type == "point")
