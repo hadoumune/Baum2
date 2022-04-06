@@ -292,12 +292,16 @@
     };
 
     Baum.prototype.toLayerObject = function(document) {
-      var idnewPlacedLayer, idplacedLayerConvertToLayers;
-      idnewPlacedLayer = stringIDToTypeID("newPlacedLayer");
-      executeAction(idnewPlacedLayer, void 0, DialogModes.NO);
+      var idplacedLayerConvertToLayers;
       idplacedLayerConvertToLayers = stringIDToTypeID("placedLayerConvertToLayers");
       executeAction(idplacedLayerConvertToLayers, void 0, DialogModes.NO);
       return app.activeDocument.activeLayer;
+    };
+
+    Baum.prototype.toSmartObject = function() {
+      var idx;
+      idx = stringIDToTypeID("newPlacedLayer");
+      return executeAction(idx, void 0, DialogModes.NO);
     };
 
     Baum.prototype.rasterizeAll = function(root) {
@@ -323,9 +327,7 @@
               points = this.getRectPoints(layer);
               angle = this.getAngleFromPoints(points);
               layer = this.toLayerObject(root);
-              layer.rotate(-angle, AnchorPosition.MIDDLECENTER);
               opt['rot'] = angle.toFixed(3);
-              alert("rotate text layer angle:" + opt['rot']);
               name += "@";
               _1st = true;
               for (key in opt) {
@@ -338,7 +340,6 @@
                 name += key + "=" + value;
               }
               layer.name = name;
-              alert("art smartobject:" + layer.name);
             }
           }
           if (layer.kind !== LayerKind.TEXT) {
@@ -731,19 +732,6 @@
       return opt;
     };
 
-    PsdToJson.prototype.toLayerObject = function() {
-      var idplacedLayerConvertToLayers;
-      idplacedLayerConvertToLayers = stringIDToTypeID("placedLayerConvertToLayers");
-      executeAction(idplacedLayerConvertToLayers, void 0, DialogModes.NO);
-      return document.activeLayer;
-    };
-
-    PsdToJson.prototype.toSmartObject = function() {
-      var idx;
-      idx = stringIDToTypeID("newPlacedLayer");
-      return executeAction(idx, void 0, DialogModes.NO);
-    };
-
     PsdToJson.prototype.reasetTransform = function() {
       var idplacedLayerResetTransforms;
       idplacedLayerResetTransforms = stringIDToTypeID("placedLayerResetTransforms");
@@ -872,7 +860,7 @@
       if (opt['stretchxy']) {
         hash['stretchxy'] = opt['stretchxy'];
       }
-      if (opt['rot']) {
+      if (opt['rot'] && !(opt['rot'] === "smart")) {
         hash['rot'] = Number(opt['rot']);
       }
       return hash;
@@ -939,6 +927,9 @@
       }
       if (opt['stretchxy']) {
         hash['stretchxy'] = opt['stretchxy'];
+      }
+      if (opt['rot'] && !(opt['rot'] === "smart")) {
+        hash['rot'] = Number(opt['rot']);
       }
       hash['elements'] = this.allLayers(document, layer);
       return hash;

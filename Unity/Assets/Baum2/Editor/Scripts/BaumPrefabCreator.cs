@@ -30,14 +30,12 @@ namespace Baum2.Editor
 
         public GameObject Create()
         {
-			log("PrefabCreator::Create");
             if (EditorApplication.isPlaying)
             {
                 EditorApplication.isPlaying = false;
             }
 
 			log($"PrefabCreator::LoadAsset:{assetPath}");
-
             var text = AssetDatabase.LoadAssetAtPath<TextAsset>(assetPath).text;
             var json = MiniJSON.Json.Deserialize(text) as Dictionary<string, object>;
             var info = json.GetDic("info");
@@ -85,7 +83,7 @@ namespace Baum2.Editor
 
     public class Renderer
     {
-		private static string defaultFontPath = "Assets/Baum2/Fonts/mplus-2p-regular.ttf";
+		private static string defaultFontPath = "Assets/Baum2/Fonts/mplus-2p-regular-aaaa.ttf";
         private readonly string spriteRootPath;
         private readonly string fontRootPath;
         private readonly Vector2 imageSize;
@@ -113,9 +111,10 @@ namespace Baum2.Editor
         {
             var font = AssetDatabase.LoadAssetAtPath<Font>(Path.Combine(fontRootPath, fontName) + ".ttf");
             if (font == null) font = AssetDatabase.LoadAssetAtPath<Font>(Path.Combine(fontRootPath, fontName) + ".otf");
-            if (font == null) font = AssetDatabase.LoadAssetAtPath<Font>(defaultFontPath);
             //Assert.IsNotNull(font, string.Format("[Baum2] font \"{0}\" is not found", fontName));
 			// fallback default font
+            if (font == null) font = AssetDatabase.LoadAssetAtPath<Font>(defaultFontPath);
+			if (font == null ) font = Resources.GetBuiltinResource (typeof(Font), "Arial.ttf") as Font;
 
             return font;
         }

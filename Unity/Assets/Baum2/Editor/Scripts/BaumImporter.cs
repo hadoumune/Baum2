@@ -48,12 +48,9 @@ namespace Baum2.Editor
 
             EditorApplication.delayCall += () =>
             {
-                Debug.Log("[Baum2] DelayCall");
-
                 // Create Prefab
                 foreach (var asset in importedAssets)
                 {
-					log($"import:{asset}");
                     if (!asset.Contains(EditorUtil.ImportDirectoryPath)) continue;
                     if (!asset.EndsWith(".layout.json", System.StringComparison.Ordinal))continue;
 

@@ -206,11 +206,14 @@ class Baum
 		return angle
 
 	toLayerObject:(document) ->
-		idnewPlacedLayer = stringIDToTypeID("newPlacedLayer");
-		executeAction(idnewPlacedLayer, undefined, DialogModes.NO);
 		idplacedLayerConvertToLayers = stringIDToTypeID( "placedLayerConvertToLayers" );
 		executeAction( idplacedLayerConvertToLayers, undefined, DialogModes.NO );
 		return app.activeDocument.activeLayer
+
+	toSmartObject: () ->
+		idx = stringIDToTypeID( "newPlacedLayer" );
+		executeAction( idx, undefined, DialogModes.NO );
+
 
 	rasterizeAll: (root) ->
 		for layer in root.layers
@@ -235,10 +238,10 @@ class Baum
 						angle = @getAngleFromPoints(points)
 						layer = @toLayerObject(root)
 						# 回転を打ち消す
-						layer.rotate(-angle,AnchorPosition.MIDDLECENTER)
+						#layer.rotate(-angle,AnchorPosition.MIDDLECENTER)
 						# rotを上書き.
 						opt['rot'] = angle.toFixed(3)
-						alert("rotate text layer angle:"+opt['rot'])
+						#alert("rotate text layer angle:"+opt['rot'])
 						name += "@"
 						# optを戻す.
 						_1st=true
@@ -249,7 +252,7 @@ class Baum
 								name += ","
 							name += key+"="+value
 						layer.name = name
-						alert("art smartobject:"+layer.name)
+						#alert("art smartobject:"+layer.name)
 
 				if layer.kind != LayerKind.TEXT
 					@rasterize(layer)
@@ -544,15 +547,6 @@ class PsdToJson
 		return opt
 
 
-	toLayerObject: () ->
-		idplacedLayerConvertToLayers = stringIDToTypeID( "placedLayerConvertToLayers" );
-		executeAction( idplacedLayerConvertToLayers, undefined, DialogModes.NO );
-		return document.activeLayer
-
-	toSmartObject: () ->
-		idx = stringIDToTypeID( "newPlacedLayer" );
-		executeAction( idx, undefined, DialogModes.NO );
-
 	reasetTransform: ->
 		idplacedLayerResetTransforms = stringIDToTypeID( "placedLayerResetTransforms" );
 		executeAction( idplacedLayerResetTransforms, undefined, DialogModes.NO );	
@@ -653,7 +647,7 @@ class PsdToJson
 		hash['stretchx'] = opt['stretchx'] if opt['stretchx']
 		hash['stretchy'] = opt['stretchy'] if opt['stretchy']
 		hash['stretchxy'] = opt['stretchxy'] if opt['stretchxy']
-		hash['rot'] = Number(opt['rot']) if opt['rot']
+		hash['rot'] = Number(opt['rot']) if opt['rot'] && !(opt['rot'] == "smart")
 
 		hash
 
@@ -689,6 +683,7 @@ class PsdToJson
 		hash['stretchx'] = opt['stretchx'] if opt['stretchx']
 		hash['stretchy'] = opt['stretchy'] if opt['stretchy']
 		hash['stretchxy'] = opt['stretchxy'] if opt['stretchxy']
+		hash['rot'] = Number(opt['rot']) if opt['rot'] && !(opt['rot'] == "smart")
 		hash['elements'] = @allLayers(document, layer)
 		hash
 
