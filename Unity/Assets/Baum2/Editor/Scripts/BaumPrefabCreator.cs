@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.Assertions;
 using UnityEditor;
@@ -10,7 +11,7 @@ using UnityEngine.UI;
 
 namespace Baum2.Editor
 {
-    public sealed class PrefabCreator
+    public sealed class PrefabCreator : IEnumerable
     {
         private static readonly string[] Versions = { "0.6.0", "0.6.1", "0.7.0" };
         private readonly string spriteRootPath;
@@ -28,6 +29,56 @@ namespace Baum2.Editor
 			Debug.Log(message);
 		}
 
+		public IEnumerator GetEnumerator(){
+
+            if (EditorApplication.isPlaying)
+            {
+                EditorApplication.isPlaying = false;
+            }
+
+            var text = AssetDatabase.LoadAssetAtPath<TextAsset>(assetPath).text;
+            var json = MiniJSON.Json.Deserialize(text) as Dictionary<string, object>;
+            var info = json.GetDic("info");
+            Validation(info);
+
+            var canvas = info.GetDic("canvas");
+            var imageSize = canvas.GetDic("image");
+            var canvasSize = canvas.GetDic("size");
+            var baseSize = canvas.GetDic("base");
+            var renderer = new Renderer(spriteRootPath, fontRootPath, imageSize.GetVector2("w", "h"), canvasSize.GetVector2("w", "h"), baseSize.GetVector2("x", "y"));
+
+			var rootDic = json.GetDic("root");
+			bool isRootOnly = true;
+			if ( rootDic.ContainsKey("prefab") ){
+				isRootOnly = rootDic.GetBool("prefab");
+			}
+			// Rootしか無い場合は今まで通り.
+			if ( isRootOnly )
+			{
+				yield return CreatePreafab(rootDic,renderer);
+			}
+			// そうでない場合下の階層のグループをルートにする.
+			else{
+				foreach( var element in rootDic.GetList("elements") ){
+					yield return CreatePreafab( (Dictionary<string,object>)element,renderer);
+				}
+			}
+		}
+
+		GameObject CreatePreafab( Dictionary<string,object> json, Renderer renderer ){
+			var rootElement = ElementFactory.Generate(json, null);
+			var root = rootElement.Render(renderer);
+			root.AddComponent<Canvas>();
+			root.AddComponent<GraphicRaycaster>();
+			root.AddComponent<UIRoot>();
+
+			Postprocess(root);
+
+			var cache = root.AddComponent<Cache>();
+			cache.CreateCache(root.transform);
+			return root;
+		}
+
         public GameObject Create()
         {
             if (EditorApplication.isPlaying)
@@ -35,18 +86,18 @@ namespace Baum2.Editor
                 EditorApplication.isPlaying = false;
             }
 
-			log($"PrefabCreator::LoadAsset:{assetPath}");
             var text = AssetDatabase.LoadAssetAtPath<TextAsset>(assetPath).text;
             var json = MiniJSON.Json.Deserialize(text) as Dictionary<string, object>;
             var info = json.GetDic("info");
             Validation(info);
 
-			log("PrefabCreator::Validation OK");
             var canvas = info.GetDic("canvas");
             var imageSize = canvas.GetDic("image");
             var canvasSize = canvas.GetDic("size");
             var baseSize = canvas.GetDic("base");
             var renderer = new Renderer(spriteRootPath, fontRootPath, imageSize.GetVector2("w", "h"), canvasSize.GetVector2("w", "h"), baseSize.GetVector2("x", "y"));
+
+
             var rootElement = ElementFactory.Generate(json.GetDic("root"), null);
             var root = rootElement.Render(renderer);
             root.AddComponent<Canvas>();
@@ -203,6 +254,11 @@ namespace Baum2.Editor
             return (float)json[key];
         }
 
+        public static bool GetBool(this Dictionary<string, object> json, string key)
+        {
+            return (bool)json[key];
+        }
+
         public static int GetInt(this Dictionary<string, object> json, string key)
         {
             return (int)(float)json[key];
@@ -217,6 +273,11 @@ namespace Baum2.Editor
         {
             return json[key] as Dictionary<string, object>;
         }
+
+        public static List<object> GetList(this Dictionary<string, object> json, string key)
+        {
+			return json[key] as List<object>;
+		}
 
         public static Vector2 GetVector2(this Dictionary<string, object> json, string keyX, string keyY)
         {

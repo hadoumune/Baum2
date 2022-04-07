@@ -58,17 +58,19 @@ namespace Baum2.Editor
                     var spriteRootPath = EditorUtil.ToUnityPath(Path.Combine(EditorUtil.GetBaumSpritesPath(), name));
                     var fontRootPath = EditorUtil.ToUnityPath(EditorUtil.GetBaumFontsPath());
                     var creator = new PrefabCreator(spriteRootPath, fontRootPath, asset);
-                    var go = creator.Create();
-                    var savePath = EditorUtil.ToUnityPath(Path.Combine(EditorUtil.GetBaumPrefabsPath(), name + ".prefab"));
-#if UNITY_2018_3_OR_NEWER
-                    PrefabUtility.SaveAsPrefabAsset(go, savePath);
-#else
-                    Object originalPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(savePath);
-                    if (originalPrefab == null) originalPrefab = PrefabUtility.CreateEmptyPrefab(savePath);
-                    PrefabUtility.ReplacePrefab(go, originalPrefab, ReplacePrefabOptions.ReplaceNameBased);
-#endif
-                    GameObject.DestroyImmediate(go);
-                    Debug.LogFormat("[Baum2] Create Prefab: {0}", savePath);
+                    //var goList = creator.Create();
+					foreach( GameObject go in creator ){
+						var savePath = EditorUtil.ToUnityPath(Path.Combine(EditorUtil.GetBaumPrefabsPath(), $"{name}.{go.name}.prefab"));
+	#if UNITY_2018_3_OR_NEWER
+						PrefabUtility.SaveAsPrefabAsset(go, savePath);
+	#else
+						Object originalPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(savePath);
+						if (originalPrefab == null) originalPrefab = PrefabUtility.CreateEmptyPrefab(savePath);
+						PrefabUtility.ReplacePrefab(go, originalPrefab, ReplacePrefabOptions.ReplaceNameBased);
+	#endif
+						GameObject.DestroyImmediate(go);
+						Debug.LogFormat("[Baum2] Create Prefab: {0}", savePath);
+					}
 
                     AssetDatabase.DeleteAsset(EditorUtil.ToUnityPath(asset));
                 }
