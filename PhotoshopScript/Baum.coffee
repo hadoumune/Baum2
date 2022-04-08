@@ -1,6 +1,6 @@
 class Baum
 	@version = '0.7.0'
-	@maxLength = 1334
+	@maxLength = 1920
 
 	run: ->
 		@saveFolder = null
@@ -40,7 +40,7 @@ class Baum
 		@layerBlendAll(copiedDoc, copiedDoc)
 		@removeCommentoutLayers(copiedDoc, copiedDoc) # blendの処理してから消す
 		@cropLayers(copiedDoc)
-		@resizePsd(copiedDoc)
+		#@resizePsd(copiedDoc)
 		@selectDocumentArea(copiedDoc)
 		#@ungroupArtboard(copiedDoc)
 		@clipping(copiedDoc, copiedDoc)
@@ -165,9 +165,61 @@ class Baum
 		bounds = [0,0,root.width,root.height];
 		root.crop(bounds)
 
+	getLayerDesc: ->
+		ref = new ActionReference()
+		ref.putEnumerated(charIDToTypeID("Lyr "),charIDToTypeID("Ordn"),charIDToTypeID("Trgt"))
+		return executeActionGet(ref)
+
+	getRectPoints: (layer) ->
+		return [{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}] if ( layer.kind != LayerKind.SMARTOBJECT )
+		smartObjectMore = stringIDToTypeID('smartObjectMore')
+
+		# 現在のアクティブレイヤーをリファレンスに登録
+		d = @getLayerDesc();
+		if !d.hasKey(smartObjectMore) 
+			alert(layer.name + ":has no smartObjectMore key")
+			return [{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}] 
+
+		# スマートオブジェクト以外のレイヤーに行うとエラーになるので注意
+		obj = d.getObjectValue(smartObjectMore)
+
+		points = []
+		if (obj.hasKey(stringIDToTypeID('transform')))
+			t_list = obj.getList(stringIDToTypeID('transform'));
+			# 端四点の位置を取得する
+			for i in [0..t_list.count-1] by 2 #;i=i+2)
+				points.push({
+				x : t_list.getDouble(i),
+				y : t_list.getDouble(i+1)
+				});
+
+		return points;
+
+	getAngleFromPoints: (points) ->
+		# 先ほど作った関数から4角の座標を取得
+		p = points
+
+		# 端4点の位置から回転量を計算
+		x = p[1].x - p[0].x;
+		y = p[1].y - p[0].y;
+		angle = Math.atan2(y, x) * (180/Math.PI)
+		return angle
+
+	toLayerObject:(document) ->
+		idplacedLayerConvertToLayers = stringIDToTypeID( "placedLayerConvertToLayers" );
+		executeAction( idplacedLayerConvertToLayers, undefined, DialogModes.NO );
+		return app.activeDocument.activeLayer
+
+	toSmartObject: () ->
+		idx = stringIDToTypeID( "newPlacedLayer" );
+		executeAction( idx, undefined, DialogModes.NO );
+
 
 	rasterizeAll: (root) ->
 		for layer in root.layers
+			# ActiveLayerの切り替え.
+			app.activeDocument.activeLayer = layer
+
 			if layer.name.startsWith('*')
 				layer.name = layer.name[1..-1].strip()
 				if layer.typename == 'LayerSet'
@@ -177,6 +229,31 @@ class Baum
 			else if layer.typename == 'LayerSet'
 				@rasterizeAll(layer)
 			else if layer.typename == 'ArtLayer'
+				# スマートオブジェクトは角度を取得してから解除して元の情報を取り出し回転を取り消しラスタライズする.
+				if layer.kind == LayerKind.SMARTOBJECT
+					name = layer.name.split("@")[0]
+					opt = Util.parseOption(layer.name.split("@")[1])
+					if opt['rot']=="smart"
+						points = @getRectPoints(layer)
+						angle = @getAngleFromPoints(points)
+						layer = @toLayerObject(root)
+						# 回転を打ち消す
+						#layer.rotate(-angle,AnchorPosition.MIDDLECENTER)
+						# rotを上書き.
+						opt['rot'] = angle.toFixed(3)
+						#alert("rotate text layer angle:"+opt['rot'])
+						name += "@"
+						# optを戻す.
+						_1st=true
+						for key,value of opt
+							if (_1st)
+								_1st = false
+							else
+								name += ","
+							name += key+"="+value
+						layer.name = name
+						#alert("art smartobject:"+layer.name)
+
 				if layer.kind != LayerKind.TEXT
 					@rasterize(layer)
 			else
@@ -392,6 +469,7 @@ class PsdToJson
 			canvasSize = [bounds[2].value - bounds[0].value, bounds[3].value - bounds[1].value]
 			canvasBase = [(bounds[2].value + bounds[0].value)/2, (bounds[3].value + bounds[1].value)/2]
 
+		# Artboardを使わない場合ルートをPrefabの起点にする.
 		json = JSON.stringify({
 			info: {
 				version: Baum.version
@@ -414,6 +492,7 @@ class PsdToJson
 				type: 'Root'
 				name: documentName
 				elements: layers
+				prefab: !useArtboard
 			}
 		})
 		json
@@ -438,7 +517,7 @@ class PsdToJson
 			# グループの時だけprefabとして出力する.
 			if hash
 				hash['name'] = name
-				hash['prefab'] = true
+				hash['prefab'] = true if useArtboard
 				layers.push(hash)
 		layers
 
@@ -467,10 +546,29 @@ class PsdToJson
 			opt[elements[0].toLowerCase()] = elements[1].toLowerCase()
 		return opt
 
+
+	reasetTransform: ->
+		idplacedLayerResetTransforms = stringIDToTypeID( "placedLayerResetTransforms" );
+		executeAction( idplacedLayerResetTransforms, undefined, DialogModes.NO );	
+
+	getActiveLayerTransform: ->
+		ref = new ActionReference()
+		ref.putEnumerated( charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt") )
+		desc = executeActionGet(ref).getObjectValue(stringIDToTypeID('textKey'))
+		if (desc.hasKey(stringIDToTypeID('transform')))
+			desc = desc.getObjectValue(stringIDToTypeID('transform'))
+			xx = desc.getDouble(stringIDToTypeID('xx'))
+			xy = desc.getDouble(stringIDToTypeID('xy'))
+			yy = desc.getDouble(stringIDToTypeID('yy'))
+			yx = desc.getDouble(stringIDToTypeID('yx'))
+			return {xx: xx, xy: xy, yy: yy, yx: yx}
+		return {xx: 0, xy: 0, yy: 0, yx: 0}
+
 	layerToHash: (document, name, opt, layer) ->
 		document.activeLayer = layer
 		hash = {}
-		if layer.kind == LayerKind.TEXT
+
+		if layer.kind == LayerKind.TEXT 
 			text = layer.textItem
 			textSize = parseFloat(@getTextSize())
 			textType = 'paragraph'
@@ -490,12 +588,12 @@ class PsdToJson
 			text.contents = "Z"
 
 			bounds = Util.getTextExtents(text)
+
 			vx = bounds.x
 			vy = bounds.y
 			ww = bounds.width
 			hh = bounds.height
 			vh = bounds.height
-
 			align = ''
 			textColor = 0x000000
 			try
@@ -549,25 +647,11 @@ class PsdToJson
 		hash['stretchx'] = opt['stretchx'] if opt['stretchx']
 		hash['stretchy'] = opt['stretchy'] if opt['stretchy']
 		hash['stretchxy'] = opt['stretchxy'] if opt['stretchxy']
+		hash['rot'] = Number(opt['rot']) if opt['rot'] && !(opt['rot'] == "smart")
+		hash['touch'] = true if opt['touch']
+		hash['touch'] = false if opt['notouch']
+
 		hash
-
-	angleFromMatrix: (yy, xy) ->
-		toDegs = 180/Math.PI
-		return Math.atan2(yy, xy) * toDegs - 90
-
-	getActiveLayerTransform: ->
-		ref = new ActionReference()
-		ref.putEnumerated( charIDToTypeID("Lyr "), charIDToTypeID("Ordn"), charIDToTypeID("Trgt") )
-		desc = executeActionGet(ref).getObjectValue(stringIDToTypeID('textKey'))
-		if (desc.hasKey(stringIDToTypeID('transform')))
-			desc = desc.getObjectValue(stringIDToTypeID('transform'))
-			xx = desc.getDouble(stringIDToTypeID('xx'))
-			xy = desc.getDouble(stringIDToTypeID('xy'))
-			yy = desc.getDouble(stringIDToTypeID('yy'))
-			yx = desc.getDouble(stringIDToTypeID('yx'))
-			return {xx: xx, xy: xy, yy: yy, yx: yx}
-		return {xx: 0, xy: 0, yy: 0, yx: 0}
-
 
 	getTextSize: ->
 		ref = new ActionReference()
@@ -601,6 +685,7 @@ class PsdToJson
 		hash['stretchx'] = opt['stretchx'] if opt['stretchx']
 		hash['stretchy'] = opt['stretchy'] if opt['stretchy']
 		hash['stretchxy'] = opt['stretchxy'] if opt['stretchxy']
+		hash['rot'] = Number(opt['rot']) if opt['rot'] && !(opt['rot'] == "smart")
 		hash['elements'] = @allLayers(document, layer)
 		hash
 

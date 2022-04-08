@@ -38,6 +38,8 @@ namespace Baum2.Editor
         protected bool stretchX;
         protected bool stretchY;
         protected Element parent;
+        public float angle{ get; private set;} = 0;
+		public bool useTouch{ get; private set;} = true;
 
         public abstract GameObject Render(Renderer renderer);
         public abstract Area CalcArea();
@@ -49,12 +51,20 @@ namespace Baum2.Editor
             if (json.ContainsKey("pivot")) pivot = json.Get("pivot");
             if (json.ContainsKey("stretchxy") || json.ContainsKey("stretchx") || (parent != null ? parent.stretchX : false)) stretchX = true;
             if (json.ContainsKey("stretchxy") || json.ContainsKey("stretchy") || (parent != null ? parent.stretchY : false)) stretchY = true;
+            angle = 0;
+            if ( json.ContainsKey("rot") ) angle = -json.GetFloat("rot");
+			useTouch = true;
+            if ( json.ContainsKey("touch") ) useTouch = json.GetBool("touch");
         }
 
         protected GameObject CreateUIGameObject(Renderer renderer)
         {
             var go = new GameObject(name);
-            go.AddComponent<RectTransform>();
+            var rt = go.AddComponent<RectTransform>();
+            if ( Mathf.Abs(angle) > 0.0001f ){
+                Debug.Log($"{name}:SetAngle {angle}");
+                rt.rotation = Quaternion.Euler(0,0,angle);
+            }
             return go;
         }
 
@@ -217,6 +227,10 @@ namespace Baum2.Editor
                 go.transform.SetParent(root.transform, true);
                 rectTransform.sizeDelta = sizeDelta;
                 rectTransform.localScale = Vector3.one;
+                if ( Mathf.Abs(angle) > 0.0001f && Mathf.Abs(element.angle) <= 0.0001f )
+                {
+                    rectTransform.localEulerAngles = Vector3.zero;
+                }
                 if (callback != null) callback(go, element);
             }
         }
@@ -277,6 +291,7 @@ namespace Baum2.Editor
             canvasPosition = json.GetVector2("x", "y");
             sizeDelta = json.GetVector2("w", "h");
             opacity = json.GetFloat("opacity");
+
         }
 
         public override GameObject Render(Renderer renderer)
@@ -457,6 +472,7 @@ namespace Baum2.Editor
     public sealed class ListElement : GroupElement
     {
         private string scroll;
+		Scrollbar.Direction scrollDir = Scrollbar.Direction.BottomToTop;
 
         public ListElement(Dictionary<string, object> json, Element parent) : base(json, parent, true)
         {
@@ -491,12 +507,14 @@ namespace Baum2.Editor
             {
                 scrollRect.vertical = true;
                 scrollRect.horizontal = false;
+				scrollDir = Scrollbar.Direction.BottomToTop;
                 layoutGroup.Scroll = Scroll.Vertical;
             }
             else if (scroll == "horizontal")
             {
                 scrollRect.vertical = false;
                 scrollRect.horizontal = true;
+				scrollDir = Scrollbar.Direction.LeftToRight;
                 layoutGroup.Scroll = Scroll.Horizontal;
             }
         }
@@ -577,6 +595,10 @@ namespace Baum2.Editor
             var go = CreateSelf(renderer);
 
             RectTransform fillRect = null;
+            RectTransform handleRect = null;
+
+			var useTouch = false;
+
             RenderChildren(renderer, go, (g, element) =>
             {
                 var image = element as ImageElement;
@@ -584,11 +606,15 @@ namespace Baum2.Editor
 
                 g.GetComponent<Image>().raycastTarget = false;
                 if (element.name.Equals("Fill", StringComparison.OrdinalIgnoreCase)) fillRect = g.GetComponent<RectTransform>();
+                if (element.name.Equals("Handle", StringComparison.OrdinalIgnoreCase)){
+					handleRect = g.GetComponent<RectTransform>();
+					useTouch = element.useTouch;
+				}
             });
 
             var slider = go.AddComponent<Slider>();
             slider.transition = Selectable.Transition.None;
-            slider.interactable = false;
+            slider.interactable = useTouch;
             if (fillRect != null)
             {
                 fillRect.localScale = Vector2.zero;
@@ -598,6 +624,21 @@ namespace Baum2.Editor
                 fillRect.sizeDelta = Vector2.zero;
                 fillRect.localScale = Vector3.one;
                 slider.fillRect = fillRect;
+            }
+
+            var handleImage = handleRect == null ? null : handleRect.GetComponent<Image>();
+            if (handleImage != null)
+            {
+                handleRect.anchoredPosition = Vector2.zero;
+                handleRect.anchorMin = new Vector2(0.0f, 0.0f);
+                handleRect.anchorMax = new Vector2(1.0f, 0.0f);
+
+                //handleRect.sizeDelta = Vector2.zero;
+
+                slider.direction = Slider.Direction.LeftToRight;
+                slider.value = 0.0f;
+                slider.targetGraphic = handleImage;
+                slider.handleRect = handleRect;
             }
 
             SetStretch(go, renderer);
@@ -622,7 +663,7 @@ namespace Baum2.Editor
                 var image = element as ImageElement;
                 if (handleRect != null || image == null) return;
                 if (element.name.Equals("Handle", StringComparison.OrdinalIgnoreCase)) handleRect = g.GetComponent<RectTransform>();
-                g.GetComponent<Image>().raycastTarget = false;
+                g.GetComponent<Image>().raycastTarget = image.useTouch;
             });
 
             var scrollbar = go.AddComponent<Scrollbar>();
