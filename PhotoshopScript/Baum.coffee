@@ -648,6 +648,8 @@ class PsdToJson
 		hash['stretchy'] = opt['stretchy'] if opt['stretchy']
 		hash['stretchxy'] = opt['stretchxy'] if opt['stretchxy']
 		hash['rot'] = Number(opt['rot']) if opt['rot'] && !(opt['rot'] == "smart")
+		hash['touch'] = true if opt['touch']
+		hash['touch'] = false if opt['notouch']
 
 		hash
 

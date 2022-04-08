@@ -863,6 +863,12 @@
       if (opt['rot'] && !(opt['rot'] === "smart")) {
         hash['rot'] = Number(opt['rot']);
       }
+      if (opt['touch']) {
+        hash['touch'] = true;
+      }
+      if (opt['notouch']) {
+        hash['touch'] = false;
+      }
       return hash;
     };
 

@@ -16,6 +16,7 @@ namespace Baum2.Editor
             return path.Replace("\\", "/");
         }
 
+		// 特定の名前が含まれるディレクトリを検索する.
         public static string GetBaumSpritesPath()
         {
             return GetPath("BaumSprites");
@@ -28,8 +29,8 @@ namespace Baum2.Editor
 
         public static string GetBaumFontsPath()
         {
-            return GetPath("BaumFonts");
-        }
+            return GetPath("BaumFonts"); 
+		}
 
         public static string GetPath(string fileName)
         {
