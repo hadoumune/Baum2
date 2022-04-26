@@ -8,6 +8,10 @@ using UnityEngine;
 using UnityEngine.Assertions;
 using UnityEditor;
 using UnityEngine.UI;
+#if !NO_TEXTMESHPRO
+using TMPro;
+#endif
+
 
 namespace Baum2.Editor
 {
@@ -17,19 +21,17 @@ namespace Baum2.Editor
         private readonly string spriteRootPath;
         private readonly string fontRootPath;
         private readonly string assetPath;
+        private readonly string baseName;
 
-        public PrefabCreator(string spriteRootPath, string fontRootPath, string assetPath)
+        public PrefabCreator(string spriteRootPath, string fontRootPath, string assetPath, string baseName)
         {
             this.spriteRootPath = spriteRootPath;
             this.fontRootPath = fontRootPath;
             this.assetPath = assetPath;
+            this.baseName = baseName;
         }
 
-		void log(string message){
-			Debug.Log(message);
-		}
-
-		public IEnumerator GetEnumerator(){
+        public IEnumerator GetEnumerator(){
 
             if (EditorApplication.isPlaying)
             {
@@ -47,37 +49,42 @@ namespace Baum2.Editor
             var baseSize = canvas.GetDic("base");
             var renderer = new Renderer(spriteRootPath, fontRootPath, imageSize.GetVector2("w", "h"), canvasSize.GetVector2("w", "h"), baseSize.GetVector2("x", "y"));
 
-			var rootDic = json.GetDic("root");
-			bool isRootOnly = true;
-			if ( rootDic.ContainsKey("prefab") ){
-				isRootOnly = rootDic.GetBool("prefab");
-			}
-			// Rootしか無い場合は今まで通り.
-			if ( isRootOnly )
-			{
-				yield return CreatePreafab(rootDic,renderer);
-			}
-			// そうでない場合下の階層のグループをルートにする.
-			else{
-				foreach( var element in rootDic.GetList("elements") ){
-					yield return CreatePreafab( (Dictionary<string,object>)element,renderer);
-				}
-			}
-		}
+            var rootDic = json.GetDic("root");
+            bool isRootOnly = true;
+            if ( rootDic.ContainsKey("prefab") ){
+                isRootOnly = rootDic.GetBool("prefab");
+            }
+            // Rootしか無い場合は今まで通り.
+            if ( isRootOnly )
+            {
+                yield return CreatePreafab(rootDic,renderer,false);
+            }
+            // そうでない場合下の階層のグループをルートにする.
+            else{
+                foreach( var element in rootDic.GetList("elements") ){
+                    yield return CreatePreafab( (Dictionary<string,object>)element,renderer);
+                }
+            }
+        }
 
-		GameObject CreatePreafab( Dictionary<string,object> json, Renderer renderer ){
-			var rootElement = ElementFactory.Generate(json, null);
-			var root = rootElement.Render(renderer);
-			root.AddComponent<Canvas>();
-			root.AddComponent<GraphicRaycaster>();
-			root.AddComponent<UIRoot>();
+        GameObject CreatePreafab( Dictionary<string,object> json, Renderer renderer, bool useBaseName = true ){
+            var rootElement = ElementFactory.Generate(json, null);
+            var root = rootElement.Render(renderer);
+            root.AddComponent<Canvas>();
+            root.AddComponent<GraphicRaycaster>();
+            root.AddComponent<UIRoot>();
 
-			Postprocess(root);
+            Postprocess(root);
 
-			var cache = root.AddComponent<Cache>();
-			cache.CreateCache(root.transform);
-			return root;
-		}
+            // Rootにネームスペースを付ける.
+            if ( useBaseName ){
+                root.name = baseName + "." + root.name;
+            }
+
+            var cache = root.AddComponent<Cache>();
+            cache.CreateCache(root.transform);
+            return root;
+        }
 
         public GameObject Create()
         {
@@ -134,7 +141,7 @@ namespace Baum2.Editor
 
     public class Renderer
     {
-		private static string defaultFontPath = "Assets/Baum2/Fonts/mplus-2p-regular-aaaa.ttf";
+        private static string defaultFontPath = "Assets/Baum2/Fonts/mplus-2p-regular-aaaa.ttf";
         private readonly string spriteRootPath;
         private readonly string fontRootPath;
         private readonly Vector2 imageSize;
@@ -158,14 +165,22 @@ namespace Baum2.Editor
             return sprite;
         }
 
+    #if !NO_TEXTMESHPRO
+        public TMP_FontAsset GetTMPFont(string fontName){
+            TMP_FontAsset font = null;
+            font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(Path.Combine(fontRootPath, "SDF/"+fontName) + ".asset");
+            return font;
+        }
+    #endif
         public Font GetFont(string fontName)
         {
             var font = AssetDatabase.LoadAssetAtPath<Font>(Path.Combine(fontRootPath, fontName) + ".ttf");
             if (font == null) font = AssetDatabase.LoadAssetAtPath<Font>(Path.Combine(fontRootPath, fontName) + ".otf");
+            if (font == null ) font = AssetDatabase.LoadAssetAtPath<Font>(Path.Combine(fontRootPath, fontName+"/"+fontName) + ".fontsettings");
             //Assert.IsNotNull(font, string.Format("[Baum2] font \"{0}\" is not found", fontName));
-			// fallback default font
+            // fallback default font
             if (font == null) font = AssetDatabase.LoadAssetAtPath<Font>(defaultFontPath);
-			if (font == null ) font = Resources.GetBuiltinResource (typeof(Font), "Arial.ttf") as Font;
+            if (font == null ) font = Resources.GetBuiltinResource (typeof(Font), "Arial.ttf") as Font;
 
             return font;
         }
@@ -276,8 +291,8 @@ namespace Baum2.Editor
 
         public static List<object> GetList(this Dictionary<string, object> json, string key)
         {
-			return json[key] as List<object>;
-		}
+            return json[key] as List<object>;
+        }
 
         public static Vector2 GetVector2(this Dictionary<string, object> json, string keyX, string keyY)
         {

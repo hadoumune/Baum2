@@ -4,6 +4,9 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.Assertions;
 using UnityEngine.UI;
+#if !NO_TEXTMESHPRO
+using TMPro;
+#endif
 
 namespace Baum2.Editor
 {
@@ -18,6 +21,7 @@ namespace Baum2.Editor
             { "Text", (d, p) => new TextElement(d, p) },
             { "Button", (d, p) => new ButtonElement(d, p) },
             { "List", (d, p) => new ListElement(d, p) },
+            { "ScrollRect", (d, p) => new ScrollRectElement(d, p) },
             { "Slider", (d, p) => new SliderElement(d, p) },
             { "Scrollbar", (d, p) => new ScrollbarElement(d, p) },
             { "Toggle", (d, p) => new ToggleElement(d, p) },
@@ -31,29 +35,56 @@ namespace Baum2.Editor
         }
     }
 
-    public abstract class Element
+    public interface IRootType{
+        bool isRoot();
+    }
+
+    public abstract class Element : IRootType
     {
         public string name;
         protected string pivot;
-        protected bool stretchX;
-        protected bool stretchY;
+        protected bool stretchX = false;
+        protected bool stretchY = false;
         protected Element parent;
         public float angle{ get; private set;} = 0;
-		public bool useTouch{ get; private set;} = true;
+        public bool useTouch{ get; private set;} = true;
+        public bool useArea{ get; set; } = true;
+        public virtual bool isRoot(){ return false; }
 
-        public abstract GameObject Render(Renderer renderer);
+        public abstract GameObject Render(Renderer renderer,Transform parent=null);
         public abstract Area CalcArea();
+        public virtual void PostRender(GameObject go, Element element,Transform parent){
+
+        }
+
+        public static bool CompareName(Element element, string stateName){
+            return element.name.Equals(stateName, StringComparison.OrdinalIgnoreCase);
+        }
+        public static bool ContainsName(Element element, string stateName){
+            return element.name.IndexOf(stateName, StringComparison.OrdinalIgnoreCase)>=0;
+        }
+
+        bool parentStretchX{
+            get{
+                return ((parent != null && (!parent.isRoot())) ? parent.stretchX : false);
+            }
+        }
+        bool parentStretchY{
+            get{
+                return ((parent != null && (!parent.isRoot())) ? parent.stretchY : false);
+            }
+        }
 
         protected Element(Dictionary<string, object> json, Element parent)
         {
             this.parent = parent;
             name = json.Get("name");
             if (json.ContainsKey("pivot")) pivot = json.Get("pivot");
-            if (json.ContainsKey("stretchxy") || json.ContainsKey("stretchx") || (parent != null ? parent.stretchX : false)) stretchX = true;
-            if (json.ContainsKey("stretchxy") || json.ContainsKey("stretchy") || (parent != null ? parent.stretchY : false)) stretchY = true;
+            if (json.ContainsKey("stretchxy") || json.ContainsKey("stretchx") ) stretchX = true;
+            if (json.ContainsKey("stretchxy") || json.ContainsKey("stretchy") ) stretchY = true;
             angle = 0;
             if ( json.ContainsKey("rot") ) angle = -json.GetFloat("rot");
-			useTouch = true;
+            useTouch = true;
             if ( json.ContainsKey("touch") ) useTouch = json.GetBool("touch");
         }
 
@@ -175,7 +206,7 @@ namespace Baum2.Editor
             areaCache = CalcAreaInternal();
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateSelf(renderer);
 
@@ -221,7 +252,7 @@ namespace Baum2.Editor
         {
             foreach (var element in elements)
             {
-                var go = element.Render(renderer);
+                var go = element.Render(renderer,root.transform);
                 var rectTransform = go.GetComponent<RectTransform>();
                 var sizeDelta = rectTransform.sizeDelta;
                 go.transform.SetParent(root.transform, true);
@@ -232,14 +263,25 @@ namespace Baum2.Editor
                     rectTransform.localEulerAngles = Vector3.zero;
                 }
                 if (callback != null) callback(go, element);
+                element.PostRender(go,element,root.transform);
             }
         }
 
         private Area CalcAreaInternal()
         {
+            if ( !useArea ) return Area.None();
             var area = Area.None();
-            foreach (var element in elements) area.Merge(element.CalcArea());
+            foreach (var element in elements){
+                if ( element.useArea ){
+                    area.Merge(element.CalcArea());
+                }
+            }
             return area;
+        }
+
+        public Area RecalcArea(){
+            areaCache = CalcAreaInternal();
+            return CalcArea();
         }
 
         public override Area CalcArea()
@@ -251,6 +293,7 @@ namespace Baum2.Editor
     public class RootElement : GroupElement
     {
         private Vector2 sizeDelta;
+        public override bool isRoot(){ return true; }
 
         public RootElement(Dictionary<string, object> json, Element parent) : base(json, parent)
         {
@@ -266,14 +309,16 @@ namespace Baum2.Editor
             rect.anchoredPosition = Vector2.zero;
 
             SetMaskImage(renderer, go);
+            // Rootのストレッチは最後にやらないとレイアウトが崩れる.
+            //SetStretch(go, renderer);
 
-            SetStretch(go, renderer);
             SetPivot(go, renderer);
             return go;
         }
 
         public override Area CalcArea()
         {
+            if ( !useArea ) return Area.None();
             return new Area(-sizeDelta / 2.0f, sizeDelta / 2.0f);
         }
     }
@@ -294,7 +339,7 @@ namespace Baum2.Editor
 
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateUIGameObject(renderer);
 
@@ -315,6 +360,7 @@ namespace Baum2.Editor
 
         public override Area CalcArea()
         {
+            if ( !useArea ) return Area.None();
             return Area.FromPositionAndSize(canvasPosition, sizeDelta);
         }
     }
@@ -340,6 +386,8 @@ namespace Baum2.Editor
         private int strokeSize;
         private Color strokeColor;
         private string type;
+        private string style;
+        private bool useAutoSize;
 
         public TextElement(Dictionary<string, object> json, Element parent) : base(json, parent)
         {
@@ -358,9 +406,67 @@ namespace Baum2.Editor
             sizeDelta = json.GetVector2("w", "h");
             canvasPosition = json.GetVector2("x", "y");
             virtualHeight = json.GetFloat("vh");
+            if ( !json.ContainsKey("style") ){
+                style = "normal";
+            }
+            else{
+                style = json.Get("style");
+            }
+
+            useAutoSize = true;
+            if ( json.ContainsKey("autosize") ){
+                useAutoSize = json.GetBool("autosize");
+            }
         }
 
-        public override GameObject Render(Renderer renderer)
+        /// フォントスタイルの取得.
+        private FontStyle GetStyle(){
+            var fontStyle = FontStyle.Normal;
+            switch( style ){
+                case "bold": fontStyle = FontStyle.Bold; break;
+                case "italic": fontStyle = FontStyle.Italic; break;
+                case "bolditalic": fontStyle = FontStyle.BoldAndItalic; break;
+            }
+            return fontStyle;
+        }
+        /// アライメントの取得.
+        private TextAnchor GetAlignment(bool middle){
+            var alignment = TextAnchor.MiddleCenter;
+            switch( align ){
+                case "left": alignment = middle ? TextAnchor.MiddleLeft : TextAnchor.UpperLeft; break;
+                case "center": alignment = middle ? TextAnchor.MiddleCenter : TextAnchor.UpperCenter; break;
+                case "right": alignment = middle ? TextAnchor.MiddleRight : TextAnchor.UpperRight; break;
+            }
+            return alignment;
+        }
+
+        #if !NO_TEXTMESHPRO
+
+        /// TMPフォントスタイルの取得.
+        private TMPro.FontStyles GetTMPStyle(){
+            int fontStyle = (int)TMPro.FontStyles.Normal;
+            switch( style ){
+                case "bold": fontStyle |= (int)TMPro.FontStyles.Bold; break;
+                case "italic": fontStyle |= (int)TMPro.FontStyles.Italic; break;
+                case "bolditalic": fontStyle |= (int)TMPro.FontStyles.Bold+(int)TMPro.FontStyles.Italic; break;
+            }
+            return (TMPro.FontStyles)fontStyle;
+        }
+
+        /// TMPアライメントの取得.
+        private TextAlignmentOptions GetTMPAlignment(bool middle){
+            var alignment = TextAlignmentOptions.Center;
+            switch( align ){
+                case "left": alignment = middle ? TextAlignmentOptions.Left : TextAlignmentOptions.TopLeft; break;
+                case "center": alignment = middle ? TextAlignmentOptions.Center : TextAlignmentOptions.Top; break;
+                case "right": alignment = middle ? TextAlignmentOptions.Right : TextAlignmentOptions.TopRight;break;
+            }
+            return alignment;
+        }
+
+        #endif
+
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateUIGameObject(renderer);
 
@@ -372,46 +478,99 @@ namespace Baum2.Editor
             raw.Info["font_size"] = fontSize;
             raw.Info["align"] = align;
 
-            var text = go.AddComponent<Text>();
-            text.text = message;
-            text.font = renderer.GetFont(font);
-            text.fontSize = Mathf.RoundToInt(fontSize);
-            text.color = fontColor;
+            bool isNormalText = true;
+            #if !NO_TEXTMESHPRO
+            TMP_FontAsset tmpFont = renderer.GetTMPFont(font);
+            if ( tmpFont != null ){
+                isNormalText = false;
+            }
+            #endif
+            if ( isNormalText ){
+                raw.Info["isTMP"] = false;
+                var text = go.AddComponent<Text>();
+                text.text = message;
+                text.font = renderer.GetFont(font);
+                text.fontSize = Mathf.RoundToInt(fontSize);
+                text.color = fontColor;
+                text.fontStyle = GetStyle();
+                bool middle = true;
+                if (type == "point")
+                {
+                    text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    text.verticalOverflow = VerticalWrapMode.Overflow;
+                    middle = true;
+                }
+                else if (type == "paragraph")
+                {
+                    text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    text.verticalOverflow = VerticalWrapMode.Overflow;
+                    middle = !message.Contains("\n");
+                }
+                else
+                {
+                    Debug.LogError("unknown type " + type);
+                }
 
-            bool middle = true;
-            if (type == "point")
-            {
-                text.horizontalOverflow = HorizontalWrapMode.Overflow;
-                text.verticalOverflow = VerticalWrapMode.Overflow;
-                middle = true;
+                text.alignment = GetAlignment(middle);
+                text.raycastTarget = false;
+
+                if (enableStroke)
+                {
+                    var outline = go.AddComponent<Outline>();
+                    outline.effectColor = strokeColor;
+                    outline.effectDistance = new Vector2(strokeSize / 2.0f, -strokeSize / 2.0f);
+                    outline.useGraphicAlpha = false;
+                }
             }
-            else if (type == "paragraph")
-            {
-                text.horizontalOverflow = HorizontalWrapMode.Wrap;
-                text.verticalOverflow = VerticalWrapMode.Overflow;
-                middle = !message.Contains("\n");
-            }
-            else
-            {
-                Debug.LogError("unknown type " + type);
+            else{
+            #if !NO_TEXTMESHPRO
+                raw.Info["isTMP"] = true;
+                var tmp = go.AddComponent<TextMeshProUGUI>();
+                tmp.text = message;
+                tmp.font = tmpFont;
+                tmp.fontSize = Mathf.RoundToInt(fontSize);
+                tmp.color = fontColor;
+                tmp.fontStyle = GetTMPStyle();
+                tmp.enableAutoSizing = useAutoSize;
+                var text = go.GetComponent<TMP_Text>();
+                bool middle = true;
+
+                if (type == "point")
+                {
+                    text.enableWordWrapping = false;
+                    text.overflowMode = TextOverflowModes.Overflow;
+                    middle = true;
+                }
+                else if (type == "paragraph")
+                {
+                    text.enableWordWrapping = true;
+                    text.overflowMode = TextOverflowModes.Overflow;
+                    middle = !message.Contains("\n");
+                }
+                else
+                {
+                    Debug.LogError("unknown type " + type);
+                }
+
+                text.alignment = GetTMPAlignment(middle);
+                text.raycastTarget = false;
+            #endif
             }
 
+            // 位置を補正する.
             var fixedPos = rect.anchoredPosition;
             switch (align)
             {
                 case "left":
-                    text.alignment =　middle ? TextAnchor.MiddleLeft : TextAnchor.UpperLeft;
                     rect.pivot = new Vector2(0.0f, 0.5f);
                     fixedPos.x -= sizeDelta.x / 2.0f;
                     break;
 
                 case "center":
-                    text.alignment =　middle ? TextAnchor.MiddleCenter : TextAnchor.UpperCenter;
                     rect.pivot = new Vector2(0.5f, 0.5f);
                     break;
 
                 case "right":
-                    text.alignment =　middle ? TextAnchor.MiddleRight : TextAnchor.UpperRight;
                     rect.pivot = new Vector2(1.0f, 0.5f);
                     fixedPos.x += sizeDelta.x / 2.0f;
                     break;
@@ -422,14 +581,6 @@ namespace Baum2.Editor
             d.y = virtualHeight;
             rect.sizeDelta = d;
 
-            if (enableStroke)
-            {
-                var outline = go.AddComponent<Outline>();
-                outline.effectColor = strokeColor;
-                outline.effectDistance = new Vector2(strokeSize / 2.0f, -strokeSize / 2.0f);
-                outline.useGraphicAlpha = false;
-            }
-
             SetStretch(go, renderer);
             SetPivot(go, renderer);
             return go;
@@ -437,34 +588,96 @@ namespace Baum2.Editor
 
         public override Area CalcArea()
         {
+            if ( !useArea ) return Area.None();
             return Area.FromPositionAndSize(canvasPosition, sizeDelta);
         }
     }
 
     public sealed class ButtonElement : GroupElement
     {
+        private bool isExpandRaycastPadding = true;
+
         public ButtonElement(Dictionary<string, object> json, Element parent) : base(json, parent)
         {
+            isExpandRaycastPadding = true;
+            if ( json.ContainsKey("noexpand") ) isExpandRaycastPadding = !json.GetBool("noexpand");
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateSelf(renderer);
 
-            Graphic lastImage = null;
+            Graphic bgImage = null;
+            Graphic normalImage = null;
+            Image pressImage = null;
+            Image highlightImage = null;
+            Image disableImage = null;
+            Image selectImage = null;
+
             RenderChildren(renderer, go, (g, element) =>
             {
-                if (lastImage == null && element is ImageElement) lastImage = g.GetComponent<Image>();
+                if (bgImage == null && element is ImageElement) bgImage = g.GetComponent<Image>();
+
+                if ( ContainsName(element,"normal") ) normalImage = g.GetComponent<Image>();
+                else if ( ContainsName(element,"press") ) pressImage = g.GetComponent<Image>();
+                else if ( ContainsName(element,"highlight") ) highlightImage = g.GetComponent<Image>();
+                else if ( ContainsName(element,"disable") ) disableImage = g.GetComponent<Image>();
+                else if ( ContainsName(element,"select") ) selectImage = g.GetComponent<Image>();
             });
 
+            // イメージボタンが1個でもあってかつnormalが無ければ一番奥のイメージをnormalImageにする.
+            if ( normalImage == null && (pressImage != null || highlightImage != null || disableImage != null) ){
+                normalImage = bgImage;
+            }
+
+            // 当たり判定拡張をぶら下げる親のTransform
+            Transform raycastParentTransform = go.transform;
             var button = go.AddComponent<Button>();
-            if (lastImage != null)
+            // ColorTintボタン.
+            if (bgImage != null && normalImage == null )
             {
-                button.targetGraphic = lastImage;
+                button.transition = Selectable.Transition.ColorTint;
+                button.targetGraphic = bgImage;
+                raycastParentTransform = bgImage.transform;
+            }
+            // SpriteSwapボタン.
+            else{
+                button.transition = Selectable.Transition.SpriteSwap;
+                button.targetGraphic = normalImage;
+                raycastParentTransform = normalImage.transform;
+                var sprites = button.spriteState;
+                sprites.pressedSprite = pressImage?.sprite;
+                sprites.highlightedSprite = highlightImage?.sprite;
+                sprites.disabledSprite = disableImage?.sprite;
+                sprites.selectedSprite = selectImage?.sprite;
+                button.spriteState = sprites;
+
+                // 不要なImageを削除.
+                GameObject.DestroyImmediate(pressImage?.gameObject);
+                GameObject.DestroyImmediate(highlightImage?.gameObject);
+                GameObject.DestroyImmediate(disableImage?.gameObject);
+                GameObject.DestroyImmediate(selectImage?.gameObject);
             }
 
             SetStretch(go, renderer);
             SetPivot(go, renderer);
+
+            // 当たり判定だけ大きくする.
+            if ( isExpandRaycastPadding ){
+                var hitbox = new GameObject("RaycastPadding");
+                var rt = hitbox.AddComponent<RectTransform>();
+                var rp = hitbox.AddComponent<UIRaycastPadding>();
+
+                hitbox.transform.SetParent(raycastParentTransform,false);
+                // 端から端迄ストレッチ.
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.one;
+
+                /// todo: 設定ファイルかインポータで指定できるようにする.
+                const float expandSize = 12.0f;
+                rt.offsetMin = new Vector2(-expandSize,-expandSize);
+                rt.offsetMax = new Vector2( expandSize, expandSize);
+            }
             return go;
         }
     }
@@ -472,14 +685,19 @@ namespace Baum2.Editor
     public sealed class ListElement : GroupElement
     {
         private string scroll;
-		Scrollbar.Direction scrollDir = Scrollbar.Direction.BottomToTop;
+        private bool useImageMask = false;
+        Scrollbar scrollbar = null;
+        Scrollbar.Direction scrollDir = Scrollbar.Direction.BottomToTop;
 
         public ListElement(Dictionary<string, object> json, Element parent) : base(json, parent, true)
         {
+            scroll = "horizontal";
             if (json.ContainsKey("scroll")) scroll = json.Get("scroll");
+            useImageMask = false;
+            if ( json.ContainsKey("imagemask") ) useImageMask = json.GetBool("imagemask");
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateSelf(renderer);
             var content = new GameObject("Content");
@@ -489,12 +707,33 @@ namespace Baum2.Editor
             SetupScroll(go, content);
             SetMaskImage(renderer, go, content);
 
-            var items = CreateItems(renderer, go);
+            var items = CreateItems(renderer, go, content, parent);
             SetupList(go, items, content);
+
+            // スクロールバーを上のレイヤーに移動させる.
+            {
+                var scrollRect = go.GetComponent<ScrollRect>();
+                /// todo: scroll == "v" || scroll == "vertical" のような形に置き換える.
+                if ( scroll.StartsWith("v") )
+                {
+                    scrollRect.verticalScrollbar = scrollbar;
+                }
+                else if ( scroll.StartsWith("h") ){
+                    scrollRect.horizontalScrollbar = scrollbar;
+                }
+            }
 
             SetStretch(go, renderer);
             SetPivot(go, renderer);
             return go;
+        }
+
+        public override void PostRender(GameObject go, Element element, Transform parent)
+        {
+            // このオブジェクトより手前側に持ってくる.
+            if ( scrollbar != null ){
+                scrollbar.transform.SetAsLastSibling();
+            }
         }
 
         private void SetupScroll(GameObject go, GameObject content)
@@ -502,19 +741,22 @@ namespace Baum2.Editor
             var scrollRect = go.AddComponent<ScrollRect>();
             scrollRect.content = content.GetComponent<RectTransform>();
 
-            var layoutGroup = content.AddComponent<ListLayoutGroup>();
-            if (scroll == "vertical")
+            ListLayoutGroup layoutGroup = null;
+            layoutGroup = content.AddComponent<ListLayoutGroup>();
+            /// todo: scroll == "v" || scroll == "vertical" のような形に置き換える.
+            if ( scroll.StartsWith("v") )
             {
                 scrollRect.vertical = true;
                 scrollRect.horizontal = false;
-				scrollDir = Scrollbar.Direction.BottomToTop;
+                scrollDir = Scrollbar.Direction.BottomToTop;
                 layoutGroup.Scroll = Scroll.Vertical;
             }
-            else if (scroll == "horizontal")
+            /// todo: scroll == "h" || scroll == "horizontal" のような形に置き換える.
+            else if ( scroll.StartsWith("h") )
             {
                 scrollRect.vertical = false;
                 scrollRect.horizontal = true;
-				scrollDir = Scrollbar.Direction.LeftToRight;
+                scrollDir = Scrollbar.Direction.LeftToRight;
                 layoutGroup.Scroll = Scroll.Horizontal;
             }
         }
@@ -531,7 +773,13 @@ namespace Baum2.Editor
             GameObject.DestroyImmediate(dummyMaskImage);
 
             maskImage.color = new Color(0.0f, 0.0f, 0.0f, 0.0f);
-            go.AddComponent<RectMask2D>();
+            if ( useImageMask ){
+                var mask = go.AddComponent<Mask>();
+                mask.showMaskGraphic = false;
+            }
+            else{
+                go.AddComponent<RectMask2D>();
+            }
         }
 
         private GameObject CreateDummyMaskImage(Renderer renderer)
@@ -545,32 +793,45 @@ namespace Baum2.Editor
             return maskImage;
         }
 
-        private List<GameObject> CreateItems(Renderer renderer, GameObject go)
+        private List<GameObject> CreateItems(Renderer renderer, GameObject go,GameObject content, Transform parent)
         {
+            scrollbar = null;
             var items = new List<GameObject>();
             foreach (var element in elements)
             {
+                // scrollがあったら上に移動させる。
+                var scrollbarElem = element as ScrollbarElement;
+                if ( scrollbarElem != null )
+                {
+                    scrollbar = scrollbarElem.Render(renderer,null)?.GetComponent<Scrollbar>();
+                    if ( scrollbar != null ){
+                        scrollbar.transform.SetParent(parent,true);
+                    }
+                    continue;
+                }
                 var item = element as GroupElement;
                 if (item == null) throw new Exception(string.Format("{0}'s element {1} is not group", name, element.name));
 
-                var itemObject = item.Render(renderer);
+                var itemObject = item.Render(renderer,go.transform);
                 itemObject.transform.SetParent(go.transform);
 
                 var rect = itemObject.GetComponent<RectTransform>();
                 var originalPosition = rect.anchoredPosition;
-                if (scroll == "vertical")
+
+            /// todo: scroll == "v" || scroll == "vertical" のような形に置き換える.
+                if ( scroll.StartsWith("v") )
                 {
                     rect.anchorMin = new Vector2(0.5f, 1.0f);
                     rect.anchorMax = new Vector2(0.5f, 1.0f);
                     rect.anchoredPosition = new Vector2(originalPosition.x, -rect.rect.height / 2f);
                 }
-                else if (scroll == "horizontal")
+            /// todo: scroll == "h" || scroll == "horizontal" のような形に置き換える.
+                else if ( scroll.StartsWith("h") )
                 {
                     rect.anchorMin = new Vector2(0.0f, 0.5f);
                     rect.anchorMax = new Vector2(0.0f, 0.5f);
                     rect.anchoredPosition = new Vector2(rect.rect.width / 2f, originalPosition.y);
                 }
-
                 items.Add(itemObject);
             }
             return items;
@@ -584,37 +845,181 @@ namespace Baum2.Editor
         }
     }
 
-    public sealed class SliderElement : GroupElement
+    public sealed class ScrollRectElement : GroupElement
     {
-        public SliderElement(Dictionary<string, object> json, Element parent) : base(json, parent)
+        private string scroll;
+        private bool useImageMask=false;
+        private Scrollbar scrollbar;
+        Scrollbar.Direction scrollDir = Scrollbar.Direction.BottomToTop;
+
+        public ScrollRectElement(Dictionary<string, object> json, Element parent) : base(json, parent, true)
         {
+            scroll = "horizontal";
+            if (json.ContainsKey("scroll")) scroll = json.Get("scroll");
+            useImageMask = false;
+            if ( json.ContainsKey("imagemask") ) useImageMask = json.GetBool("imagemask");
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
-            var go = CreateSelf(renderer);
-
-            RectTransform fillRect = null;
-            RectTransform handleRect = null;
-
-			var useTouch = false;
-
-            RenderChildren(renderer, go, (g, element) =>
+            // マスクイメージ以外のエリアを無視するようにする.
+            foreach(var element in elements)
             {
-                var image = element as ImageElement;
-                if (fillRect != null || image == null) return;
+                var scrollbarElem = element as ScrollbarElement;
+                if ( element.name != "Area" && scrollbarElem == null )
+                {
+                    // マスクイメージ以外を無視するようにする.
+                    element.useArea = false;
+                }
+            }
+            var area = RecalcArea();
 
-                g.GetComponent<Image>().raycastTarget = false;
-                if (element.name.Equals("Fill", StringComparison.OrdinalIgnoreCase)) fillRect = g.GetComponent<RectTransform>();
-                if (element.name.Equals("Handle", StringComparison.OrdinalIgnoreCase)){
-					handleRect = g.GetComponent<RectTransform>();
-					useTouch = element.useTouch;
-				}
+            var go = CreateSelf(renderer);
+            var content = new GameObject("Content");
+            content.AddComponent<RectTransform>();
+            content.transform.SetParent(go.transform);
+
+            SetupScroll(go, content);
+            SetMaskImage(renderer, go, content);
+
+            scrollbar = null;
+            var scrollRect = go.GetComponent<ScrollRect>();
+            RenderChildren(renderer, go,(g,element)=>{
+                var scrollbarElem = element as ScrollbarElement;
+                if ( scrollbarElem != null )
+                {
+                    scrollbar = g.GetComponent<Scrollbar>();
+                    scrollbar.transform.SetParent(parent,true);
+                }
+                else{
+                    g.transform.SetParent(content.transform,true);
+                }
             });
 
-            var slider = go.AddComponent<Slider>();
-            slider.transition = Selectable.Transition.None;
-            slider.interactable = useTouch;
+            // スクロールバーが生成されてからアタッチする.
+            if ( scroll == "v" || scroll == "vertical" )
+            {
+                scrollRect.verticalScrollbar = scrollbar;
+            }
+            else if ( scroll == "h" || scroll == "horizontal" )
+            {
+                scrollRect.horizontalScrollbar = scrollbar;
+            }
+            else if ( scroll == "free" )
+            {
+            }
+
+            SetStretch(go, renderer);
+            SetPivot(go, renderer);
+            return go;
+        }
+
+        public override void PostRender(GameObject go, Element element, Transform parent)
+        {
+            // このオブジェクトより手前側に持ってくる.
+            if ( scrollbar != null ){
+                scrollbar.transform.SetAsLastSibling();
+            }
+        }
+
+        private void SetupScroll(GameObject go, GameObject content)
+        {
+            var scrollRect = go.AddComponent<ScrollRect>();
+            scrollRect.content = content.GetComponent<RectTransform>();
+
+            if ( scroll == "v" || scroll == "vertical" )
+            {
+                scrollRect.vertical = true;
+                scrollRect.horizontal = false;
+                scrollRect.verticalScrollbar = scrollbar;
+                scrollDir = Scrollbar.Direction.BottomToTop;
+            }
+            else if ( scroll == "h" || scroll == "horizontal" )
+            {
+                scrollRect.vertical = false;
+                scrollRect.horizontal = true;
+                scrollRect.horizontalScrollbar = scrollbar;
+                scrollDir = Scrollbar.Direction.LeftToRight;
+            }
+            else if ( scroll == "free" )
+            {
+                scrollRect.vertical = true;
+                scrollRect.horizontal = true;
+                //scrollRect.horizontalScrollbar = scrollbar;
+                scrollDir = Scrollbar.Direction.LeftToRight;
+            }
+        }
+
+        private void SetMaskImage(Renderer renderer, GameObject go, GameObject content)
+        {
+            var maskImage = go.AddComponent<Image>();
+
+            var dummyMaskImage = CreateDummyMaskImage(renderer);
+            dummyMaskImage.transform.SetParent(go.transform);
+            go.GetComponent<RectTransform>().CopyTo(content.GetComponent<RectTransform>());
+            content.GetComponent<RectTransform>().localPosition = Vector3.zero;
+            dummyMaskImage.GetComponent<Image>().CopyTo(maskImage);
+            GameObject.DestroyImmediate(dummyMaskImage);
+
+            maskImage.color = new Color(1.0f, 1.0f, 1.0f, 1.0f);
+            if ( useImageMask ){
+                var mask = go.AddComponent<Mask>();
+                mask.showMaskGraphic = false;
+            }
+            else{
+                go.AddComponent<RectMask2D>();
+            }
+        }
+
+        private GameObject CreateDummyMaskImage(Renderer renderer)
+        {
+            var maskElement = elements.Find(x => (x is ImageElement && x.name.Equals("Area", StringComparison.OrdinalIgnoreCase)));
+            if (maskElement == null) throw new Exception(string.Format("{0} Area not found", name));
+            elements.Remove(maskElement);
+
+            var maskImage = maskElement.Render(renderer);
+            maskImage.SetActive(false);
+            return maskImage;
+        }
+    }
+
+
+    public sealed class SliderElement : GroupElement
+    {
+        private string scroll;
+        private bool isHandleStretch = false;
+        private Area handleArea = Area.None();
+        private Area fillArea = Area.None();
+        public SliderElement(Dictionary<string, object> json, Element parent) : base(json, parent)
+        {
+            scroll = "horizontal";
+            isHandleStretch = false;
+            if (json.ContainsKey("scroll")) scroll = json.Get("scroll");
+            if (json.ContainsKey("hstretch")) isHandleStretch = json.GetBool("hstretch");
+        }
+
+        private Slider.Direction GetSliderDirection(){
+            var direction = Slider.Direction.LeftToRight;
+
+            /// todo: scroll == "v" || scroll == "vertical" のような形に置き換える.
+            if ( scroll.StartsWith("v") || scroll.StartsWith("b") ){
+                direction = Slider.Direction.BottomToTop;
+            }
+            else if ( scroll.StartsWith("t")){
+                direction = Slider.Direction.TopToBottom;
+            }
+            else if ( scroll.StartsWith("h") || scroll.StartsWith("l") ) {
+                direction = Slider.Direction.LeftToRight;
+            }
+            else if ( scroll.StartsWith("r")){
+                direction = Slider.Direction.RightToLeft;
+            }
+            return direction;
+        }
+
+        // 塗りつぶしのセットアップ.
+        private void SetupFill(Slider slider,RectTransform fillRect)
+        {
             if (fillRect != null)
             {
                 fillRect.localScale = Vector2.zero;
@@ -625,20 +1030,90 @@ namespace Baum2.Editor
                 fillRect.localScale = Vector3.one;
                 slider.fillRect = fillRect;
             }
+        }
 
+        // ハンドルのセットアップ
+        private void SetupHandle(Slider slider,RectTransform handleRect)
+        {
             var handleImage = handleRect == null ? null : handleRect.GetComponent<Image>();
             if (handleImage != null)
             {
+                handleImage.raycastTarget = true;
                 handleRect.anchoredPosition = Vector2.zero;
                 handleRect.anchorMin = new Vector2(0.0f, 0.0f);
                 handleRect.anchorMax = new Vector2(1.0f, 0.0f);
 
-                //handleRect.sizeDelta = Vector2.zero;
+                GameObject noStretchHandle = null;
+                // ハンドルをストレッチさせたくない場合は子供にぶら下げるしかない.
+                if ( !isHandleStretch ){
+                    noStretchHandle = GameObject.Instantiate(handleImage.gameObject);
+                }
 
-                slider.direction = Slider.Direction.LeftToRight;
+                slider.direction = GetSliderDirection();
                 slider.value = 0.0f;
                 slider.targetGraphic = handleImage;
                 slider.handleRect = handleRect;
+
+                // ハンドルをストレッチさせたくない場合は子供にぶら下げるしかない.
+                if ( !isHandleStretch && noStretchHandle != null ){
+                    var nshrect = noStretchHandle.GetComponent<RectTransform>();
+                    noStretchHandle.transform.SetParent(handleRect.transform,true);
+                    nshrect.name = handleImage.name;
+                    nshrect.anchoredPosition = Vector2.zero;
+                    nshrect.anchorMin = new Vector2(0.5f, 0.5f);
+                    nshrect.anchorMax = new Vector2(0.5f, 0.5f);
+                    nshrect.sizeDelta = handleArea.Size;
+                    GameObject.DestroyImmediate(handleImage);
+                }
+            }
+        }
+
+        public override GameObject Render(Renderer renderer,Transform parent)
+        {
+            var go = CreateSelf(renderer);
+
+            RectTransform fillRect = null;
+            RectTransform handleRect = null;
+
+            var useTouch = false;
+
+            RenderChildren(renderer, go, (g, element) =>
+            {
+                var image = element as ImageElement;
+                if ( image == null ) return;
+
+                g.GetComponent<Image>().raycastTarget = false;
+                if ( CompareName(element,"Fill") )
+                {
+                    fillRect = g.GetComponent<RectTransform>();
+                    fillArea = element.CalcArea();
+                }
+                else if ( CompareName(element,"Handle") )
+                {
+                    handleRect = g.GetComponent<RectTransform>();
+                    useTouch = element.useTouch;
+                    handleArea = element.CalcArea();
+                    // ハンドルを無視するようにする.
+                    element.useArea = false;
+                }
+                else{
+                    // Fill以外無視するようにする.
+                    element.useArea = false;
+                }
+            });
+
+            var slider = go.AddComponent<Slider>();
+            slider.transition = Selectable.Transition.None;
+            slider.interactable = useTouch;
+
+            SetupFill(slider,fillRect);
+            SetupHandle(slider,handleRect);
+
+            // ハンドルが見つかった場合、ハンドルを無視して再計算が必要.
+            if ( handleRect != null ){
+                var area = RecalcArea();
+                var sliderRect = slider.GetComponent<RectTransform>();
+                sliderRect.sizeDelta = area.Size;
             }
 
             SetStretch(go, renderer);
@@ -653,7 +1128,7 @@ namespace Baum2.Editor
         {
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateSelf(renderer);
 
@@ -694,7 +1169,7 @@ namespace Baum2.Editor
         {
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateSelf(renderer);
 
@@ -724,7 +1199,7 @@ namespace Baum2.Editor
         {
         }
 
-        public override GameObject Render(Renderer renderer)
+        public override GameObject Render(Renderer renderer,Transform parent)
         {
             var go = CreateUIGameObject(renderer);
             SetStretch(go, renderer);
