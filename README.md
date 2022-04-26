@@ -55,15 +55,21 @@ I am currently developing [AkyuiUnity(AdobeXD to Unity)](https://github.com/kyub
 基本的にPhotoshop上の1レイヤー = Unity上の1GameObjectになります。  
 UIの一部をアニメーションさせたい場合などは、Photoshop上のレイヤーを分けておいてください。  
 
+### Artboard
+* Photoshop上の **Artboard** グループはインポート時にPrefabに分解されます。
+  * 名前はArtboardから始まる必要があります。
+
 ### Text
 
 * Photoshop上の **Textレイヤー** は、Unity上でUnityEngine.UI.Textとして変換されます。
 * フォントやフォントサイズ、色などの情報も可能な限りUnity側も同じように設定されます。
+* @fontでフォント名を指定できます。FontsフォルダにSDFフォルダを作りfontで指定するとTextMeshProが使用できます（要TextMeshPro)
 
 ### Button
 
 * Photoshop上の **名前が"Button"で終わるグループ** は、Unity上でUnityEngine.UI.Buttonとして変換されます。
 * このグループ内で、最も奥に描画されるイメージレイヤーがクリック可能な範囲(UI.Button.TargetGraphic)に設定されます。
+* グループ内にnormal/highlight/disable/press/selectで終わるイメージがあると自動的にSpriteSwapのボタンになります
 
 ### Slider
 
@@ -78,24 +84,32 @@ UIの一部をアニメーションさせたい場合などは、Photoshop上の
 ### List
 
 * Photoshop上の **名前が"List"で終わるグループ** は、Unity上でBaum2.Listとして変換されます。
-* このグループ内には、Itemグループと、Maskレイヤーが必須です。
+* このグループ内には、Itemグループと、Areaレイヤーが必須です。
     * Itemグループ内の要素がリストの1アイテムになります。
-    * Maskレイヤーがそのリストにかかるマスクになります。
-* 詳しくはサンプルをご覧ください。
+    * Areaレイヤーがそのリストにかかるマスクになります。
+* 名前の後ろに *@ImageMask* を指定するとAreaレイヤーをイメージマスクとして扱います
+
+### ScrollRect
+
+* Photoshop上の **名前が"ScrollRect"で終わるグループ** は、Unity上でUnityEngine.UI.ScrollRectとして変換されます。
+* イメージとしては要素が固定されているListです（Listよりも構造はシンプルになります）
+* このグループ内には、Areaレイヤーが必須です。
+    * Areaレイヤーがそのリストにかかるマスクになります。
 
 ### Pivot
 
-* Photoshop上のルート直下にあるグループにのみ使えます。
+* レイヤーやグループに対してオプションで指定します。
 * 名前の後ろに *@Pivot=TopRight* のようにPivotを指定できます。
+* UnityのAnchorPointの扱いになります。親のレイヤー/グループの範囲がPivotする範囲になります。
 
 ### コメントレイヤー
 
 レイヤー名の先頭に#をつけることで、出力されないレイヤーを作ることが出来ます。
 
-### 1334px以上を書き出す場合
+### 1920px以上を書き出す場合
 
 - Baum.jsのmaxLengthを適切な値に変更して使ってください。
-- デフォルトで1334に縮小している理由は、テクスチャのサイズを小さく抑えるためです。
+- デフォルトで1920に縮小している理由は、テクスチャのサイズを小さく抑えるためです。
 
 ## Developed by
 
