@@ -1,7 +1,9 @@
 /*
     <javascriptresource>
-    <name>Baum2JsonExport</name>
-    <about>Baum2JsonExport.</about>
+    <name>Baum2JsonExport 1.0.3</name>
+    <about>
+		Baum2JsonExport. v1.0.3
+	</about>
     </javascriptresource>
 */
 // 日本語認識用
@@ -19,6 +21,8 @@
 
     Baum.version = '0.7.0';
 
+    Baum.build = '1.0.3';
+
     Baum.maxLength = 1920;
 
     Baum.prototype.run = function() {
@@ -34,7 +38,7 @@
       } else {
         this.runOneFile(false);
       }
-      return alert('complete!');
+      return alert('complete!\nversion ' + Baum.build);
     };
 
     Baum.prototype.runOneFile = function(after_close) {
@@ -301,7 +305,8 @@
     Baum.prototype.toSmartObject = function() {
       var idx;
       idx = stringIDToTypeID("newPlacedLayer");
-      return executeAction(idx, void 0, DialogModes.NO);
+      executeAction(idx, void 0, DialogModes.NO);
+      return app.activeDocument.activeLayer;
     };
 
     Baum.prototype.rasterizeAll = function(root) {
@@ -327,6 +332,10 @@
               points = this.getRectPoints(layer);
               angle = this.getAngleFromPoints(points);
               layer = this.toLayerObject(root);
+              if (layer.kind !== LayerKind.TEXT) {
+                layer = this.toSmartObject();
+              }
+              layer.name = name;
               opt['rot'] = angle.toFixed(3);
               name += "@";
               _1st = true;
@@ -643,7 +652,8 @@
           type: 'Root',
           name: documentName,
           elements: layers,
-          prefab: !useArtboard
+          prefab: !useArtboard,
+          stretchxy: true
         }
       });
       return json;
@@ -661,6 +671,35 @@
       return null;
     };
 
+    PsdToJson.prototype.stretchOptRoot = function(name, hash, opt) {
+      var stretchx, stretchy;
+      stretchx = true;
+      stretchy = true;
+      if (opt['stretchx']) {
+        stretchx = opt['stretchx'];
+      }
+      if (opt['stretchy']) {
+        stretchy = opt['stretchy'];
+      }
+      if (opt['stretchxy']) {
+        stretchx = opt['stretchxy'];
+        stretchy = opt['stretchxy'];
+      }
+      if (opt['nos'] || opt['nostretch']) {
+        stretchx = false;
+        stretchy = false;
+      }
+      if (stretchx && stretchy) {
+        hash['stretchxy'] = true;
+      }
+      if (stretchx && !stretchy) {
+        hash['stretchx'] = true;
+      }
+      if (!stretchx && stretchy) {
+        return hash['stretchy'] = true;
+      }
+    };
+
     PsdToJson.prototype.allLayers1st = function(document, root, useArtboard) {
       var hash, j, layer, layers, len, name, opt, ref1;
       layers = [];
@@ -674,12 +713,16 @@
         name = layer.name.split("@")[0];
         opt = Util.parseOption(layer.name.split("@")[1]);
         if (layer.typename === 'ArtLayer') {
-
+          if (!useArtboard) {
+            hash = this.layerToHash(document, name, opt, layer);
+          }
         } else {
           hash = this.groupToHash(document, name, opt, layer);
         }
         if (hash) {
-          hash['name'] = name;
+          if (useArtboard) {
+            this.stretchOptRoot(name, hash, opt);
+          }
           if (useArtboard) {
             hash['prefab'] = true;
           }
@@ -714,24 +757,6 @@
       return layers;
     };
 
-    PsdToJson.prototype.parseOption = function(text) {
-      var elements, j, len, opt, optText, ref1;
-      if (!text) {
-        return {};
-      }
-      opt = {};
-      ref1 = text.split(",");
-      for (j = 0, len = ref1.length; j < len; j++) {
-        optText = ref1[j];
-        elements = optText.split("=");
-        if (elements.length === 1) {
-          elements[1] = 'true';
-        }
-        opt[elements[0].toLowerCase()] = elements[1].toLowerCase();
-      }
-      return opt;
-    };
-
     PsdToJson.prototype.reasetTransform = function() {
       var idplacedLayerResetTransforms;
       idplacedLayerResetTransforms = stringIDToTypeID("placedLayerResetTransforms");
@@ -764,32 +789,58 @@
       };
     };
 
+    PsdToJson.prototype.getPointTextLayerWH = function() {
+      var artLayerRef, height, newLayer, width, x, y;
+      artLayerRef = activeDocument.activeLayer;
+      newLayer = artLayerRef.duplicate();
+      newLayer.rasterize(RasterizeType.ENTIRELAYER);
+      x = newLayer.bounds[0];
+      y = newLayer.bounds[1];
+      width = newLayer.bounds[2] - newLayer.bounds[0];
+      height = newLayer.bounds[3] - newLayer.bounds[1];
+      newLayer.remove();
+      activeDocument.activeLayer = artLayerRef;
+      return {
+        x: x,
+        y: y,
+        width: width,
+        height: height
+      };
+    };
+
     PsdToJson.prototype.layerToHash = function(document, name, opt, layer) {
-      var align, bounds, e, hash, hh, originalText, pos, scale, text, textCenterOffset, textColor, textSize, textType, vh, vx, vy, ww;
+      var align, bounds, e, hash, hh, originalText, pointBounds, scale, text, textColor, textSize, textStyle, textType, vh, vx, vy, ww;
       document.activeLayer = layer;
       hash = {};
       if (layer.kind === LayerKind.TEXT) {
         text = layer.textItem;
         textSize = parseFloat(this.getTextSize());
         textType = 'paragraph';
-        scale = Util.getTextYScale(text) / 0.9;
+        textStyle = "normal";
+        if (opt['style']) {
+          textStyle = opt['style'];
+        }
+        scale = Util.getTextYScale(text);
         if (text.kind !== TextType.PARAGRAPHTEXT) {
-          text.kind = TextType.PARAGRAPHTEXT;
           textType = 'point';
-          text.height = textSize * (2.0 / scale);
-          textCenterOffset = text.size.value;
-          pos = [text.position[0].value, text.position[1].value];
-          pos[1] = pos[1] - (textCenterOffset / (2.0 / scale));
-          text.position = pos;
+          pointBounds = this.getPointTextLayerWH();
         }
         originalText = text.contents.replace(/\r\n/g, '__CRLF__').replace(/\r/g, '__CRLF__').replace(/\n/g, '__CRLF__').replace(/__CRLF__/g, '\r\n');
         text.contents = "Z";
         bounds = Util.getTextExtents(text);
-        vx = bounds.x;
-        vy = bounds.y;
-        ww = bounds.width;
-        hh = bounds.height;
-        vh = bounds.height;
+        if (pointBounds === null) {
+          vx = bounds.x;
+          vy = bounds.y;
+          ww = bounds.width;
+          hh = bounds.height;
+          vh = bounds.height;
+        } else {
+          vx = pointBounds.x;
+          vy = pointBounds.y;
+          ww = pointBounds.width;
+          hh = pointBounds.height;
+          vh = pointBounds.height;
+        }
         align = '';
         textColor = 0x000000;
         try {
@@ -801,8 +852,10 @@
         }
         hash = {
           type: 'Text',
+          name: name,
           text: originalText,
           textType: textType,
+          style: textStyle,
           font: text.font,
           size: textSize,
           color: textColor,
@@ -814,6 +867,12 @@
           vh: Math.round(vh * 100.0) / 100.0,
           opacity: Math.round(layer.opacity * 10.0) / 10.0
         };
+        if (opt['font']) {
+          hash['font'] = opt['font'];
+        }
+        if (opt.autosize != null) {
+          hash['autosize'] = opt['autosize'];
+        }
         if (Util.hasStroke(document, layer)) {
           hash['strokeSize'] = Util.getStrokeSize(document, layer);
           hash['strokeColor'] = Util.getStrokeColor(document, layer).rgb.hexValue;
@@ -821,6 +880,7 @@
       } else if (opt['mask']) {
         hash = {
           type: 'Mask',
+          name: name,
           image: Util.layerToImageName(layer),
           x: layer.bounds[0].value,
           y: layer.bounds[1].value,
@@ -831,6 +891,7 @@
       } else {
         hash = {
           type: 'Image',
+          name: name,
           image: Util.layerToImageName(layer),
           x: layer.bounds[0].value,
           y: layer.bounds[1].value,
@@ -899,12 +960,28 @@
         if (opt['scroll']) {
           hash['scroll'] = opt['scroll'];
         }
+        if (opt['imagemask']) {
+          hash['imagemask'] = opt['imagemask'];
+        }
+      } else if (name.endsWith('ScrollRect')) {
+        hash = {
+          type: 'ScrollRect'
+        };
+        if (opt['scroll']) {
+          hash['scroll'] = opt['scroll'];
+        }
+        if (opt['imagemask']) {
+          hash['imagemask'] = opt['imagemask'];
+        }
       } else if (name.endsWith('Slider')) {
         hash = {
           type: 'Slider'
         };
         if (opt['scroll']) {
           hash['scroll'] = opt['scroll'];
+        }
+        if (opt['hstretch']) {
+          hash['hstretch'] = opt['hstretch'];
         }
       } else if (name.endsWith('Scrollbar')) {
         hash = {
@@ -922,6 +999,7 @@
           type: 'Group'
         };
       }
+      hash['name'] = name;
       if (opt['pivot']) {
         hash['pivot'] = opt['pivot'];
       }
@@ -1412,7 +1490,7 @@
       }
     };
 
-    Util.parseOption = function(text) {
+    Util._parseOption = function(text) {
       var elements, j, len, opt, optText, ref1;
       if (!text) {
         return {};
@@ -1426,6 +1504,107 @@
           elements[1] = 'true';
         }
         opt[elements[0].toLowerCase()] = elements[1].toLowerCase();
+      }
+      return opt;
+    };
+
+    Util.shortOpt = {
+      pvt: {
+        opt: "pivot",
+        val: {
+          t: "top",
+          m: "middle",
+          b: "bottom",
+          l: "left",
+          r: "right",
+          c: "center",
+          tl: "topleft",
+          ml: "middleleft",
+          bl: "bottomleft",
+          tr: "topright",
+          mr: "middleright",
+          br: "bottomright",
+          tc: "topcenter",
+          mc: "middlecenter",
+          bc: "bottomcenter"
+        },
+        def: "middlecenter"
+      },
+      sx: {
+        opt: "stretchx"
+      },
+      sy: {
+        opt: "stretchy"
+      },
+      sxy: {
+        opt: "stretchxy"
+      },
+      scr: {
+        opt: "scroll",
+        val: {
+          v: "vertical",
+          h: "horizontal"
+        },
+        def: "vertical"
+      },
+      no9: {
+        opt: "slice",
+        def: false
+      },
+      hstr: {
+        opt: "hstretch"
+      },
+      noas: {
+        opt: "autosize",
+        def: false
+      }
+    };
+
+    Util.toBoolOrValue = function(str) {
+      var lstr;
+      lstr = str.toLowerCase();
+      if (lstr === 'true') {
+        return true;
+      }
+      if (lstr === 'false') {
+        return false;
+      }
+      return lstr;
+    };
+
+    Util.parseOption = function(text) {
+      var def, elements, j, len, opt, optKey, optText, optValue, ref1, sop, useShort;
+      if (!text) {
+        return {};
+      }
+      opt = {};
+      useShort = false;
+      def = true;
+      ref1 = text.split(",");
+      for (j = 0, len = ref1.length; j < len; j++) {
+        optText = ref1[j];
+        useShort = false;
+        def = true;
+        elements = optText.split("=");
+        optKey = elements[0].toLowerCase();
+        optValue = def.toString();
+        if (elements.length > 1) {
+          optValue = elements[1].toLowerCase();
+        }
+        if (Util.shortOpt[optKey]) {
+          useShort = true;
+          sop = Util.shortOpt[optKey];
+          optKey = sop.opt;
+          if (sop.def != null) {
+            def = sop.def;
+          }
+          if (elements.length > 1 && sop.val && sop.val[optValue]) {
+            optValue = sop.val[optValue];
+          } else {
+            optValue = def.toString();
+          }
+        }
+        opt[optKey] = Util.toBoolOrValue(optValue);
       }
       return opt;
     };

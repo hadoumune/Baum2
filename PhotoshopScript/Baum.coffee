@@ -1,5 +1,6 @@
 class Baum
 	@version = '0.7.0'
+	@build = '1.0.3'
 	@maxLength = 1920
 
 	run: ->
@@ -13,7 +14,7 @@ class Baum
 		else
 			@runOneFile(false)
 
-		alert('complete!')
+		alert('complete!\nversion '+Baum.build)
 
 
 	runOneFile: (after_close) =>
@@ -22,7 +23,7 @@ class Baum
 		@saveFolder = new Folder(@folderPath);
 		folderSuccess = @saveFolder.create();
 		if !folderSuccess
-				alert('フォルダ生成に失敗しました。終了します。') 
+				alert('フォルダ生成に失敗しました。終了します。')
 				return
 		#@saveFolder = Folder.selectDialog("保存先フォルダの選択") if @saveFolder == null
 		#return if @saveFolder == null
@@ -176,9 +177,9 @@ class Baum
 
 		# 現在のアクティブレイヤーをリファレンスに登録
 		d = @getLayerDesc();
-		if !d.hasKey(smartObjectMore) 
+		if !d.hasKey(smartObjectMore)
 			alert(layer.name + ":has no smartObjectMore key")
-			return [{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}] 
+			return [{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}]
 
 		# スマートオブジェクト以外のレイヤーに行うとエラーになるので注意
 		obj = d.getObjectValue(smartObjectMore)
@@ -213,7 +214,7 @@ class Baum
 	toSmartObject: () ->
 		idx = stringIDToTypeID( "newPlacedLayer" );
 		executeAction( idx, undefined, DialogModes.NO );
-
+		return app.activeDocument.activeLayer
 
 	rasterizeAll: (root) ->
 		for layer in root.layers
@@ -237,6 +238,10 @@ class Baum
 						points = @getRectPoints(layer)
 						angle = @getAngleFromPoints(points)
 						layer = @toLayerObject(root)
+
+						# テキストじゃなければスマートオブジェクトに戻す.
+						layer = @toSmartObject() if layer.kind != LayerKind.TEXT
+						layer.name = name
 						# 回転を打ち消す
 						#layer.rotate(-angle,AnchorPosition.MIDDLECENTER)
 						# rotを上書き.
@@ -368,7 +373,7 @@ class Baum
 				artboardLayerList.push(layer)
 
 		# 見つからなければ今のドキュメントをそのまま返す.
-		if findArtboard 
+		if findArtboard
 			# ArtboardをLayerGroupに変換する.
 			for layer in artboardLayerList
 				#alert("artboardToGroup:"+layer.name)
@@ -493,6 +498,7 @@ class PsdToJson
 				name: documentName
 				elements: layers
 				prefab: !useArtboard
+				stretchxy: true
 			}
 		})
 		json
@@ -502,21 +508,41 @@ class PsdToJson
 			return layer if layer.name == name
 		null
 
+	stretchOptRoot: (name,hash,opt) ->
+		stretchx = true
+		stretchy = true
+		stretchx = opt['stretchx'] if opt['stretchx']
+		stretchy = opt['stretchy'] if opt['stretchy']
+		if opt['stretchxy']
+			stretchx = opt['stretchxy']
+			stretchy = opt['stretchxy']
+		if opt['nos'] || opt['nostretch']
+			stretchx = false
+			stretchy = false
+
+		if stretchx && stretchy
+			hash['stretchxy'] = true
+		if stretchx && !stretchy
+			hash['stretchx'] = true
+		if !stretchx && stretchy
+			hash['stretchy'] = true
+
 	allLayers1st: (document, root, useArtboard ) ->
 		layers = []
 		for layer in root.layers when layer.visible
 			hash = null
 			name = layer.name.split("@")[0]
 			opt = Util.parseOption(layer.name.split("@")[1])
+
 			if layer.typename == 'ArtLayer'
-				# nothing 
-				#hash = @layerToHash(document, name, opt, layer)
+				# アートボードでなければ出力する.
+				hash = @layerToHash(document, name, opt, layer) unless useArtboard
 			else
 				hash = @groupToHash(document, name, opt, layer)
 
 			# グループの時だけprefabとして出力する.
 			if hash
-				hash['name'] = name
+				@stretchOptRoot(name,hash,opt) if useArtboard
 				hash['prefab'] = true if useArtboard
 				layers.push(hash)
 		layers
@@ -536,20 +562,9 @@ class PsdToJson
 				layers.push(hash)
 		layers
 
-
-	parseOption: (text) ->
-		return {} unless text
-		opt = {}
-		for optText in text.split(",")
-			elements = optText.split("=")
-			elements[1] = 'true' if elements.length == 1
-			opt[elements[0].toLowerCase()] = elements[1].toLowerCase()
-		return opt
-
-
 	reasetTransform: ->
 		idplacedLayerResetTransforms = stringIDToTypeID( "placedLayerResetTransforms" );
-		executeAction( idplacedLayerResetTransforms, undefined, DialogModes.NO );	
+		executeAction( idplacedLayerResetTransforms, undefined, DialogModes.NO );
 
 	getActiveLayerTransform: ->
 		ref = new ActionReference()
@@ -564,36 +579,53 @@ class PsdToJson
 			return {xx: xx, xy: xy, yy: yy, yx: yx}
 		return {xx: 0, xy: 0, yy: 0, yx: 0}
 
+	getPointTextLayerWH: ->
+		artLayerRef = activeDocument.activeLayer;
+		newLayer = artLayerRef.duplicate();
+		newLayer.rasterize(RasterizeType.ENTIRELAYER);
+		#alert(newLayer.bounds.join(","))
+		x = newLayer.bounds[0]
+		y = newLayer.bounds[1]
+		width = newLayer.bounds[2] - newLayer.bounds[0];
+		height = newLayer.bounds[3] - newLayer.bounds[1];
+		newLayer.remove();
+		activeDocument.activeLayer = artLayerRef;
+		{x:x, y:y, width:width, height:height}
+
 	layerToHash: (document, name, opt, layer) ->
 		document.activeLayer = layer
 		hash = {}
-
-		if layer.kind == LayerKind.TEXT 
+		if layer.kind == LayerKind.TEXT
 			text = layer.textItem
 			textSize = parseFloat(@getTextSize())
 			textType = 'paragraph'
-			scale = Util.getTextYScale(text) / 0.9
+			textStyle = "normal"
+			textStyle = opt['style'] if opt['style']
+			scale = Util.getTextYScale(text) # / 0.9
 
 			if text.kind != TextType.PARAGRAPHTEXT
-				text.kind = TextType.PARAGRAPHTEXT
 				textType = 'point'
+				pointBounds = @getPointTextLayerWH()
 
-				text.height = textSize * (2.0 / scale)
-				textCenterOffset = text.size.value
-				pos = [text.position[0].value, text.position[1].value]
-				pos[1] = pos[1] - (textCenterOffset / (2.0 / scale))
-				text.position = pos
-
+			# Textの改行コードを置き換える.
 			originalText = text.contents.replace(/\r\n/g, '__CRLF__').replace(/\r/g, '__CRLF__').replace(/\n/g, '__CRLF__').replace(/__CRLF__/g, '\r\n')
 			text.contents = "Z"
 
 			bounds = Util.getTextExtents(text)
 
-			vx = bounds.x
-			vy = bounds.y
-			ww = bounds.width
-			hh = bounds.height
-			vh = bounds.height
+			if pointBounds == null
+				vx = bounds.x
+				vy = bounds.y
+				ww = bounds.width
+				hh = bounds.height
+				vh = bounds.height
+			else
+				vx = pointBounds.x
+				vy = pointBounds.y
+				ww = pointBounds.width
+				hh = pointBounds.height
+				vh = pointBounds.height
+
 			align = ''
 			textColor = 0x000000
 			try
@@ -604,8 +636,10 @@ class PsdToJson
 
 			hash = {
 				type: 'Text'
+				name: name
 				text: originalText
 				textType: textType
+				style: textStyle
 				font: text.font
 				size: textSize
 				color: textColor
@@ -617,12 +651,16 @@ class PsdToJson
 				vh: Math.round(vh * 100.0)/100.0
 				opacity: Math.round(layer.opacity * 10.0)/10.0
 			}
+			# オプションで置き換える.
+			hash['font'] = opt['font'] if opt['font']
+			hash['autosize'] = opt['autosize'] if opt.autosize?
 			if Util.hasStroke(document, layer)
 				hash['strokeSize'] = Util.getStrokeSize(document, layer)
 				hash['strokeColor'] = Util.getStrokeColor(document, layer).rgb.hexValue
 		else if opt['mask']
 			hash = {
 				type: 'Mask'
+				name: name
 				image: Util.layerToImageName(layer)
 				x: layer.bounds[0].value
 				y: layer.bounds[1].value
@@ -633,6 +671,7 @@ class PsdToJson
 		else
 			hash = {
 				type: 'Image'
+				name: name
 				image: Util.layerToImageName(layer)
 				x: layer.bounds[0].value
 				y: layer.bounds[1].value
@@ -671,9 +710,15 @@ class PsdToJson
 		else if name.endsWith('List')
 			hash = { type: 'List' }
 			hash['scroll'] = opt['scroll'] if opt['scroll']
+			hash['imagemask'] = opt['imagemask'] if opt['imagemask']
+		else if name.endsWith('ScrollRect')
+			hash = { type: 'ScrollRect' }
+			hash['scroll'] = opt['scroll'] if opt['scroll']
+			hash['imagemask'] = opt['imagemask'] if opt['imagemask']
 		else if name.endsWith('Slider')
 			hash = { type: 'Slider' }
 			hash['scroll'] = opt['scroll'] if opt['scroll']
+			hash['hstretch'] = opt['hstretch'] if opt['hstretch']
 		else if name.endsWith('Scrollbar')
 			hash = { type: 'Scrollbar' }
 			hash['scroll'] = opt['scroll'] if opt['scroll']
@@ -681,6 +726,8 @@ class PsdToJson
 			hash = { type: 'Toggle' }
 		else
 			hash = { type: 'Group' }
+
+		hash['name'] = name
 		hash['pivot'] = opt['pivot'] if opt['pivot']
 		hash['stretchx'] = opt['stretchx'] if opt['stretchx']
 		hash['stretchy'] = opt['stretchy'] if opt['stretchy']
@@ -1038,7 +1085,7 @@ class Util
 			executeAction( idMrgtwo, desc15, DialogModes.NO )
 		catch e
 
-	@parseOption: (text) ->
+	@_parseOption: (text) ->
 		return {} unless text
 		opt = {}
 		for optText in text.split(",")
@@ -1046,6 +1093,63 @@ class Util
 			elements[1] = 'true' if elements.length == 1
 			opt[elements[0].toLowerCase()] = elements[1].toLowerCase()
 		return opt
+
+	@shortOpt = {
+		pvt:{
+			opt:"pivot",
+			val:{
+				t:"top",m:"middle",b:"bottom",l:"left",r:"right",c:"center"
+				tl:"topleft",ml:"middleleft",bl:"bottomleft",
+				tr:"topright",mr:"middleright",br:"bottomright",
+				tc:"topcenter",mc:"middlecenter",bc:"bottomcenter",
+			}
+			def:"middlecenter"
+		},
+		sx:{opt:"stretchx"},
+		sy:{opt:"stretchy"},
+		sxy:{opt:"stretchxy"},
+		scr:{opt:"scroll",val:{v:"vertical",h:"horizontal",},def:"vertical"},
+		no9:{opt:"slice",def:false},
+		hstr:{opt:"hstretch"},
+		noas:{opt:"autosize",def:false}
+	}
+
+
+	@toBoolOrValue:(str) ->
+		lstr = str.toLowerCase()
+		return true if lstr=='true'
+		return false if lstr=='false'
+		lstr
+
+	@parseOption: (text) ->
+		return {} unless text
+		opt = {}
+		useShort=false
+		def = true
+		for optText in text.split(",")
+			useShort=false
+			def = true
+			elements = optText.split("=")
+			optKey = elements[0].toLowerCase()
+			optValue = def.toString()
+			optValue = elements[1].toLowerCase() if elements.length > 1
+			if Util.shortOpt[optKey]
+				#alert( "shortOpt:"+text+",optKey:"+optKey )
+				useShort = true
+				sop = Util.shortOpt[optKey]
+				#elements[0] = sop.opt
+				optKey = sop.opt
+				def = sop.def if sop.def?
+				if elements.length > 1 && sop.val && sop.val[optValue]
+					optValue = sop.val[optValue]
+				else
+					optValue = def.toString()
+
+			#elements[1] = def.toString() if elements.length == 1
+
+			opt[optKey] = Util.toBoolOrValue(optValue)#.toLowerCase()
+		return opt
+
 
 
 

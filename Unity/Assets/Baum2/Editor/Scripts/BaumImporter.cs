@@ -6,16 +6,16 @@ using System.Collections.Generic;
 using System.Linq;
 using OnionRing;
 using Object = UnityEngine.Object;
+#if !NO_TEXTMESHPRO
+using TMPro;
+#endif
+
 
 namespace Baum2.Editor
 {
     public sealed class Importer : AssetPostprocessor
     {
         public override int GetPostprocessOrder() { return 1000; }
-
-		static void log(string message){
-			Debug.Log(message);
-		}
 
         public static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
         {
@@ -57,20 +57,20 @@ namespace Baum2.Editor
                     var name = Path.GetFileName(asset).Replace(".layout.json", "");
                     var spriteRootPath = EditorUtil.ToUnityPath(Path.Combine(EditorUtil.GetBaumSpritesPath(), name));
                     var fontRootPath = EditorUtil.ToUnityPath(EditorUtil.GetBaumFontsPath());
-                    var creator = new PrefabCreator(spriteRootPath, fontRootPath, asset);
+                    var creator = new PrefabCreator(spriteRootPath, fontRootPath, asset, name);
                     //var goList = creator.Create();
-					foreach( GameObject go in creator ){
-						var savePath = EditorUtil.ToUnityPath(Path.Combine(EditorUtil.GetBaumPrefabsPath(), $"{name}.{go.name}.prefab"));
-	#if UNITY_2018_3_OR_NEWER
-						PrefabUtility.SaveAsPrefabAsset(go, savePath);
-	#else
-						Object originalPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(savePath);
-						if (originalPrefab == null) originalPrefab = PrefabUtility.CreateEmptyPrefab(savePath);
-						PrefabUtility.ReplacePrefab(go, originalPrefab, ReplacePrefabOptions.ReplaceNameBased);
-	#endif
-						GameObject.DestroyImmediate(go);
-						Debug.LogFormat("[Baum2] Create Prefab: {0}", savePath);
-					}
+                    foreach( GameObject go in creator ){
+                        var savePath = EditorUtil.ToUnityPath(Path.Combine(EditorUtil.GetBaumPrefabsPath(), $"{go.name}.prefab"));
+    #if UNITY_2018_3_OR_NEWER
+                        PrefabUtility.SaveAsPrefabAsset(go, savePath);
+    #else
+                        Object originalPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(savePath);
+                        if (originalPrefab == null) originalPrefab = PrefabUtility.CreateEmptyPrefab(savePath);
+                        PrefabUtility.ReplacePrefab(go, originalPrefab, ReplacePrefabOptions.ReplaceNameBased);
+    #endif
+                        GameObject.DestroyImmediate(go);
+                        Debug.LogFormat("[Baum2] Create Prefab: {0}", savePath);
+                    }
 
                     AssetDatabase.DeleteAsset(EditorUtil.ToUnityPath(asset));
                 }
